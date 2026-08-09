@@ -1210,6 +1210,28 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                 </Card>
               )}
 
+              {settingsSub==="salon" && (
+                <Card>
+                  <div style={{ fontSize:15, fontFamily:"'Cormorant Garamond',serif", color:T.accent, marginBottom:14 }}>お客様自己登録リンク</div>
+                  <div style={{ fontSize:12, color:T.muted, lineHeight:1.7, marginBottom:12 }}>
+                    このリンク（またはQRコード）をお客様に案内すると、ご自身で来店前アンケートに入力していただけます。入力内容は「承認待ち」タブに届きます。
+                  </div>
+                  {(() => {
+                    const registerUrl = `${window.location.origin}/register?salon=${session.user.id}`;
+                    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(registerUrl)}`;
+                    return (
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
+                        <img src={qrUrl} alt="登録用QRコード" style={{ width:160, height:160, borderRadius:12, border:`1px solid ${T.border}` }} />
+                        <div style={{ width:"100%", display:"flex", gap:8 }}>
+                          <input readOnly value={registerUrl} style={{ ...base, flex:1, fontSize:11 }} onFocus={e=>e.target.select()} />
+                          <Btn small onClick={() => { navigator.clipboard?.writeText(registerUrl); alert("リンクをコピーしました"); }}>コピー</Btn>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </Card>
+              )}
+
               {settingsSub==="menus" && (
                 <Card>
                   <div style={{ fontSize:15, fontFamily:"'Cormorant Garamond',serif", color:T.accent, marginBottom:14 }}>メニュー管理</div>
