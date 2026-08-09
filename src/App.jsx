@@ -55,6 +55,216 @@ function PaymentAddForm({ payments, savePayments, base, T, Btn }) {
   );
 }
 
+// ── ネイルデザイン料金 自動計算 ──────────────────────────────────
+const DEFAULT_PRICING = {
+  base_fee: 6500, diff_onecolor: 100, diff_low: 300, diff_mid: 500, diff_high: 800, diff_extreme: 1000,
+  mirror_onecolor: 200, parts_normal: 300, parts_small: 50, parts_expensive_margin: 50,
+  protect_menu: 200, chip_extension: 200,
+};
+const DIFF_KEYS = ["ワンカラー", "低", "中", "高", "激高"];
+const FINGER_LABELS = ["親指", "人差し指", "中指", "薬指", "小指"];
+const FINGER_HEIGHTS = [64, 84, 96, 86, 66];
+
+function makeDefaultFinger(no, hand) {
+  return { finger_no:no, hand, difficulty:"ワンカラー", onecolor_mirror:false, other_mirror_amount:0,
+    airbrush_amount:0, parts_normal_count:0, parts_small_count:0, parts_expensive_total:0,
+    protect_menu:false, chip_extension:false };
+}
+function defaultFingerSet(hand) { return [1,2,3,4,5].map(n => makeDefaultFinger(n, hand)); }
+function nailDiffMap(s) { return { ワンカラー:s.diff_onecolor, 低:s.diff_low, 中:s.diff_mid, 高:s.diff_high, 激高:s.diff_extreme }; }
+function calcFingerTotal(f, s) {
+  const map = nailDiffMap(s);
+  let total = map[f.difficulty] ?? 0;
+  if (f.difficulty === "ワンカラー" && f.onecolor_mirror) total += s.mirror_onecolor - s.diff_onecolor;
+  total += f.other_mirror_amount || 0;
+  total += f.airbrush_amount || 0;
+  total += (f.parts_normal_count||0) * s.parts_normal;
+  total += (f.parts_small_count||0) * s.parts_small;
+  if (f.parts_expensive_total > 0) total += f.parts_expensive_total + s.parts_expensive_margin;
+  if (f.protect_menu) total += s.protect_menu;
+  if (f.chip_extension) total += s.chip_extension;
+  return total;
+}
+function nailYen(n) { return `¥${(n||0).toLocaleString()}`; }
+function fingerBadge(f) {
+  const extras = [];
+  if (f.onecolor_mirror || f.other_mirror_amount>0) extras.push("mirror");
+  if (f.airbrush_amount>0) extras.push("エア");
+  if (f.parts_normal_count>0||f.parts_small_count>0||f.parts_expensive_total>0) extras.push("パーツ");
+  if (f.protect_menu) extras.push("保護");
+  if (f.chip_extension) extras.push("長さ");
+  return extras.length ? `${f.difficulty}+${extras.length}` : f.difficulty;
+}
+
+function FingerIllustration({ finger, settings, height, onTap }) {
+  const total = calcFingerTotal(finger, settings);
+  const isDefault = fingerBadge(finger) === "ワンカラー";
+  return (
+    <button onClick={onTap} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, background:"none", border:"none", cursor:"pointer", marginTop:96-height }}>
+      <div style={{ width:44, height, border:`2px solid ${isDefault?"#d8d0ca":"#c8937a"}`, background:isDefault?"#fff":"#fdf0ec", borderRadius:"50% 50% 10px 10px / 60% 60% 10px 10px" }} />
+      <span style={{ fontSize:10, color:"#a0897a" }}>{FINGER_LABELS[finger.finger_no-1]}</span>
+      <span style={{ fontSize:10, fontWeight:"bold", borderRadius:20, padding:"2px 6px", background:isDefault?"#f0eae5":"#c8937a", color:isDefault?"#a0897a":"#fff" }}>{fingerBadge(finger)}</span>
+      <span style={{ fontSize:10, color:"#b09a92" }}>{nailYen(total)}</span>
+    </button>
+  );
+}
+
+function NailNumField({ label, value, onChange }) {
+  return (
+    <label style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, background:"#fdf7f4", borderRadius:12, padding:"8px 12px" }}>
+      <span style={{ fontSize:13, color:"#7a6a60" }}>{label}</span>
+      <input type="number" min={0} value={value} onChange={e=>onChange(Math.max(0, Number(e.target.value)||0))}
+        style={{ width:80, borderRadius:8, border:"1px solid #ede6e2", padding:"6px 8px", textAlign:"right", fontSize:13 }} />
+    </label>
+  );
+}
+
+function FingerEditSheet({ finger, settings, onDone, onCancel }) {
+  const [f, setF] = useState(finger);
+  const total = calcFingerTotal(f, settings);
+  const map = nailDiffMap(settings);
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:70, display:"flex", alignItems:"flex-end", justifyContent:"center", background:"rgba(30,20,15,0.4)" }} onClick={e=>{ if(e.target===e.currentTarget) onCancel(); }}>
+      <div style={{ width:"100%", maxWidth:440, maxHeight:"88vh", overflowY:"auto", background:"#fff", borderRadius:"22px 22px 0 0", padding:20 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+          <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:17, color:"#3d2c26" }}>{f.hand}・{FINGER_LABELS[f.finger_no-1]}の編集</div>
+          <div style={{ fontSize:18, fontWeight:"bold", color:"#c8937a" }}>{nailYen(total)}</div>
+        </div>
+        <div style={{ fontSize:11, color:"#a0897a", marginBottom:6 }}>難易度（1つ選択）</div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6, marginBottom:14 }}>
+          {DIFF_KEYS.map(k => (
+            <button key={k} onClick={() => { const patch={difficulty:k}; if(k!=="ワンカラー"){patch.onecolor_mirror=false;} else {patch.other_mirror_amount=0;} setF({...f,...patch}); }}
+              style={{ borderRadius:12, border:`1px solid ${f.difficulty===k?"#c8937a":"#ede6e2"}`, background:f.difficulty===k?"#c8937a":"#fff", color:f.difficulty===k?"#fff":"#3d2c26", padding:"8px 4px", fontSize:12, fontWeight:"bold" }}>
+              {k}<div style={{ fontSize:10, fontWeight:"normal", opacity:0.85 }}>{nailYen(map[k])}</div>
+            </button>
+          ))}
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
+          {f.difficulty==="ワンカラー" ? (
+            <label style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"#fdf7f4", borderRadius:12, padding:"8px 12px" }}>
+              <span style={{ fontSize:13, color:"#7a6a60" }}>mirror加算（+{nailYen(settings.mirror_onecolor-settings.diff_onecolor)}）</span>
+              <input type="checkbox" checked={f.onecolor_mirror} onChange={e=>setF({...f,onecolor_mirror:e.target.checked})} style={{ width:18, height:18 }} />
+            </label>
+          ) : (
+            <NailNumField label="mirror加算（手入力）" value={f.other_mirror_amount} onChange={v=>setF({...f,other_mirror_amount:v})} />
+          )}
+          <NailNumField label="エアブラシ加算（手入力）" value={f.airbrush_amount} onChange={v=>setF({...f,airbrush_amount:v})} />
+          <NailNumField label={`通常パーツ 個数（${nailYen(settings.parts_normal)}/個）`} value={f.parts_normal_count} onChange={v=>setF({...f,parts_normal_count:v})} />
+          <NailNumField label={`極小パーツ 個数（${nailYen(settings.parts_small)}/個）`} value={f.parts_small_count} onChange={v=>setF({...f,parts_small_count:v})} />
+          <NailNumField label={`高額パーツ 仕入合計（+${nailYen(settings.parts_expensive_margin)}/本）`} value={f.parts_expensive_total} onChange={v=>setF({...f,parts_expensive_total:v})} />
+          <label style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"#fdf7f4", borderRadius:12, padding:"8px 12px" }}>
+            <span style={{ fontSize:13, color:"#7a6a60" }}>保護メニュー（{nailYen(settings.protect_menu)}）</span>
+            <input type="checkbox" checked={f.protect_menu} onChange={e=>setF({...f,protect_menu:e.target.checked})} style={{ width:18, height:18 }} />
+          </label>
+          <label style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"#fdf7f4", borderRadius:12, padding:"8px 12px" }}>
+            <span style={{ fontSize:13, color:"#7a6a60" }}>長さだし（{nailYen(settings.chip_extension)}）</span>
+            <input type="checkbox" checked={f.chip_extension} onChange={e=>setF({...f,chip_extension:e.target.checked})} style={{ width:18, height:18 }} />
+          </label>
+        </div>
+        <button onClick={()=>onDone(f)} style={{ width:"100%", background:"#c8937a", color:"#fff", border:"none", borderRadius:14, padding:"13px", fontSize:15, fontFamily:"'Cormorant Garamond',serif", fontWeight:"bold" }}>編集完了</button>
+      </div>
+    </div>
+  );
+}
+
+function NailPricingSettingsPanel({ settings, onChange, onClose }) {
+  const rows = [
+    ["base_fee","基本料金"], ["diff_onecolor","難易度：ワンカラー"], ["diff_low","難易度：低"],
+    ["diff_mid","難易度：中"], ["diff_high","難易度：高"], ["diff_extreme","難易度：激高"],
+    ["mirror_onecolor","ワンカラーmirror固定額"], ["parts_normal","通常パーツ単価"], ["parts_small","極小パーツ単価"],
+    ["parts_expensive_margin","高額パーツ上乗せ額"], ["protect_menu","保護メニュー"], ["chip_extension","長さだし"],
+  ];
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:80, display:"flex", alignItems:"center", justifyContent:"center", background:"rgba(30,20,15,0.45)", padding:16 }}>
+      <div style={{ width:"100%", maxWidth:420, maxHeight:"85vh", overflowY:"auto", background:"#fff", borderRadius:20, padding:20 }}>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:17, marginBottom:14, color:"#3d2c26" }}>料金設定</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+          {rows.map(([key,label]) => (
+            <label key={key} style={{ display:"flex", flexDirection:"column", gap:4, fontSize:11, color:"#a0897a" }}>
+              {label}
+              <input type="number" value={settings[key]} onChange={e=>onChange({...settings,[key]:Number(e.target.value)||0})}
+                style={{ borderRadius:8, border:"1px solid #ede6e2", padding:"6px 8px", fontSize:13 }} />
+            </label>
+          ))}
+        </div>
+        <button onClick={onClose} style={{ width:"100%", marginTop:16, background:"#c8937a", color:"#fff", border:"none", borderRadius:14, padding:"12px", fontSize:14, fontFamily:"'Cormorant Garamond',serif" }}>閉じる</button>
+      </div>
+    </div>
+  );
+}
+
+function NailPricingModal({ settings, onSaveSettings, onConfirm, onClose }) {
+  const [target, setTarget] = useState("hand");
+  const [handLeft, setHandLeft] = useState(defaultFingerSet("左手"));
+  const [handRight, setHandRight] = useState(defaultFingerSet("右手"));
+  const [footLeft, setFootLeft] = useState(defaultFingerSet("左足"));
+  const [footRight, setFootRight] = useState(defaultFingerSet("右足"));
+  const [editing, setEditing] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const left = target==="hand" ? handLeft : footLeft;
+  const right = target==="hand" ? handRight : footRight;
+  const setLeft = target==="hand" ? setHandLeft : setFootLeft;
+  const setRight = target==="hand" ? setHandRight : setFootRight;
+
+  const fingersTotal = [...handLeft, ...handRight, ...footLeft, ...footRight].reduce((sum,f) => sum + calcFingerTotal(f, settings), 0);
+  const grandTotal = settings.base_fee + fingersTotal;
+
+  const openEdit = (side, idx) => setEditing({ side, idx });
+  const closeEdit = (updated) => {
+    if (editing.side === "left") setLeft(prev => prev.map((f,i)=> i===editing.idx?updated:f));
+    else setRight(prev => prev.map((f,i)=> i===editing.idx?updated:f));
+    setEditing(null);
+  };
+  const editingFinger = editing ? (editing.side==="left" ? left[editing.idx] : right[editing.idx]) : null;
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:60, background:"#fdf7f4", overflowY:"auto" }}>
+      <div style={{ position:"sticky", top:0, background:"#fffdfb", borderBottom:"1px solid #ede6e2", padding:"14px 16px", zIndex:5 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+          <div>
+            <div style={{ fontSize:10, letterSpacing:"0.15em", color:"#c8937a" }}>SALON NOTE</div>
+            <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:17, color:"#3d2c26" }}>デザイン料金 自動計算</div>
+          </div>
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={()=>setShowSettings(true)} style={{ borderRadius:10, border:"none", background:"#3d2c26", color:"#fff", padding:"7px 12px", fontSize:11 }}>料金設定</button>
+            <button onClick={onClose} style={{ borderRadius:10, border:"1px solid #ede6e2", background:"#fff", color:"#a0897a", padding:"7px 12px", fontSize:11 }}>閉じる</button>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          {[["hand","ハンド"],["foot","フット"]].map(([key,label]) => (
+            <button key={key} onClick={()=>setTarget(key)} style={{ flex:1, borderRadius:12, border:"none", padding:"9px", fontSize:13, fontWeight:"bold", background:target===key?"#c8937a":"#f0eae5", color:target===key?"#fff":"#a0897a" }}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ maxWidth:480, margin:"0 auto", padding:"16px 16px 120px" }}>
+        <div style={{ fontSize:11, color:"#a0897a", marginBottom:6 }}>{target==="hand"?"左手":"左足"}・タップして編集</div>
+        <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"center", gap:10, background:"#fff", border:"1px solid #ede6e2", borderRadius:16, padding:14, marginBottom:20 }}>
+          {left.map((f,i) => <FingerIllustration key={`L${f.finger_no}`} finger={f} settings={settings} height={FINGER_HEIGHTS[i]} onTap={()=>openEdit("left",i)} />)}
+        </div>
+        <div style={{ fontSize:11, color:"#a0897a", marginBottom:6 }}>{target==="hand"?"右手":"右足"}・タップして編集</div>
+        <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"center", gap:10, background:"#fff", border:"1px solid #ede6e2", borderRadius:16, padding:14 }}>
+          {right.map((f,i) => <FingerIllustration key={`R${f.finger_no}`} finger={f} settings={settings} height={FINGER_HEIGHTS[i]} onTap={()=>openEdit("right",i)} />)}
+        </div>
+      </div>
+
+      <div style={{ position:"fixed", left:0, right:0, bottom:0, background:"#fff", borderTop:"1px solid #ede6e2", padding:"12px 16px", zIndex:5 }}>
+        <div style={{ maxWidth:480, margin:"0 auto", display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+          <div style={{ fontSize:11, color:"#a0897a" }}>基本料金 {nailYen(settings.base_fee)} ＋ 指合計 {nailYen(fingersTotal)}</div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:19, fontWeight:"bold", color:"#c8937a" }}>{nailYen(grandTotal)}</span>
+            <button onClick={()=>onConfirm(grandTotal)} style={{ borderRadius:12, border:"none", background:"#3d2c26", color:"#fff", padding:"10px 16px", fontSize:13, fontWeight:"bold" }}>登録完了</button>
+          </div>
+        </div>
+      </div>
+
+      {editingFinger && <FingerEditSheet finger={editingFinger} settings={settings} onDone={closeEdit} onCancel={()=>setEditing(null)} />}
+      {showSettings && <NailPricingSettingsPanel settings={settings} onChange={onSaveSettings} onClose={()=>setShowSettings(false)} />}
+    </div>
+  );
+}
+
 // ── Auth Screen ──────────────────────────────────────────────────
 function AuthScreen() {
   const themeKey = LS.get("sn4_theme", "sakura");
@@ -260,6 +470,8 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [menuForm, setMenuForm] = useState({ name:"", price:"" });
   const [editMenuId, setEditMenuId] = useState(null);
   const [tplForm, setTplForm] = useState("");
+  const [pricingSettings, setPricingSettings] = useState(DEFAULT_PRICING);
+  const [showNailCalc, setShowNailCalc] = useState(false);
 
   const importRef = useRef();
   const photoRef  = useRef();
@@ -287,9 +499,24 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     }
   };
 
+  const fetchPricingSettings = async () => {
+    const { data, error } = await supabase.from("pricing_settings").select("*").eq("user_id", session.user.id).maybeSingle();
+    if (error) { console.error("fetchPricingSettings error:", error); return; }
+    if (data) setPricingSettings({ ...DEFAULT_PRICING, ...data });
+    else await savePricingSettings(DEFAULT_PRICING); // 初回のみデフォルト値で1行作成
+  };
+  const savePricingSettings = async (patch) => {
+    setPricingSettings(patch);
+    const { error } = await supabase.from("pricing_settings").upsert(
+      { user_id: session.user.id, ...patch, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" }
+    );
+    if (error) { alert("料金設定の保存に失敗しました"); console.error("savePricingSettings error:", error); }
+  };
+
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchClients(), fetchKartes(), fetchSettings()]).then(() => setLoading(false));
+    Promise.all([fetchClients(), fetchKartes(), fetchSettings(), fetchPricingSettings()]).then(() => setLoading(false));
   }, [session]);
 
   const saveC = c => { setClients(c); LS.set("sn4_clients", c); };
@@ -1270,7 +1497,13 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   </div>
                 </div>
               )}
-              <div><Lbl t="金額（円）" /><input type="number" value={kf.price} onChange={e=>{ setKf(f=>({...f,price:e.target.value})); setKarteDirty(true); }} placeholder="例: 6000（税込）" style={base} /></div>
+              <div>
+                <Lbl t="金額（円）" />
+                <div style={{ display:"flex", gap:8 }}>
+                  <input type="number" value={kf.price} onChange={e=>{ setKf(f=>({...f,price:e.target.value})); setKarteDirty(true); }} placeholder="例: 6000（税込）" style={{ ...base, flex:1 }} />
+                  <Btn small color={T.sub} onClick={() => setShowNailCalc(true)}>デザイン料金を計算</Btn>
+                </div>
+              </div>
               <div>
                 <Lbl t="お支払い方法" />
                 <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
@@ -1307,6 +1540,19 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
             </div>
           </div>
         </div>
+      )}
+
+      {showNailCalc && (
+        <NailPricingModal
+          settings={pricingSettings}
+          onSaveSettings={savePricingSettings}
+          onClose={() => setShowNailCalc(false)}
+          onConfirm={(total) => {
+            setKf(f => ({ ...f, price: String(total) }));
+            setKarteDirty(true);
+            setShowNailCalc(false);
+          }}
+        />
       )}
     </div>
   );
