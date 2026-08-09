@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { supabase } from "./supabase";
 
-export default function CustomerForm() {
+export default function CustomerForm({ salonId }) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ name:"", phone:"", birthday:"", address:"", allergy:"" });
   const [agrees, setAgrees] = useState({ service:false, privacy:false, cancel:false });
@@ -13,6 +13,7 @@ export default function CustomerForm() {
     if (!form.name.trim()) { alert("お名前は必須です"); return; }
     setLoading(true);
     const { error } = await supabase.from("pending_clients").insert([{
+      user_id: salonId,
       name: form.name, phone: form.phone,
       birthday: form.birthday, address: form.address, allergy: form.allergy,
       agree_service: agrees.service, agree_privacy: agrees.privacy, agree_cancel: agrees.cancel,
@@ -34,6 +35,18 @@ export default function CustomerForm() {
     box: { background:"#fff", border:"1px solid #ede6e2", borderRadius:12, padding:"16px", marginBottom:16 },
     policy: { fontSize:12, color:"#7a6a60", lineHeight:1.8, maxHeight:120, overflowY:"auto", marginBottom:12, padding:"8px", background:"#fdf7f4", borderRadius:8 },
   };
+
+  if (!salonId) return (
+    <div style={s.wrap}>
+      <div style={{ ...s.body, textAlign:"center", paddingTop:60 }}>
+        <div style={{ fontSize:48, marginBottom:20 }}>⚠️</div>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:20, color:"#c8937a", marginBottom:12 }}>このリンクは無効です</div>
+        <div style={{ fontSize:14, color:"#7a6a60", lineHeight:1.8 }}>
+          サロンからご案内されたQRコードまたはリンクから<br/>アクセスしてください。
+        </div>
+      </div>
+    </div>
+  );
 
   if (done) return (
     <div style={s.wrap}>
