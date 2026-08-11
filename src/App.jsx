@@ -292,15 +292,17 @@ function AuthScreen() {
     if (password.length < 6) { setError("パスワードは6文字以上にしてください"); return; }
     setLoading(true); setError("");
     if (inviteToken) {
-      const { data: inv } = await supabase.from("invitations").select("*").eq("token", inviteToken).eq("used", false).single();
-      if (!inv) { setError("招待コードが無効か、すでに使用済みです"); setLoading(false); return; }
+      const { data: ok } = await supabase.rpc("check_invite_token", { p_token: inviteToken });
+      if (!ok) { setError("招待コードが無効か、すでに使用済みです"); setLoading(false); return; }
     }
     const { data, error: err } = await supabase.auth.signUp({ email, password });
     if (err) { setError(err.message); setLoading(false); return; }
-    const role = inviteToken ? "staff" : "owner";
-    const status = inviteToken ? "pending" : "active";
-    await supabase.from("salon_members").insert({ user_id: data.user?.id, role, status });
-    if (inviteToken) await supabase.from("invitations").update({ used: true }).eq("token", inviteToken);
+    let role = "owner", status = "active", invitedBy = null;
+    if (inviteToken) {
+      const { data: consumedBy } = await supabase.rpc("consume_invite_token", { p_token: inviteToken });
+      if (consumedBy) { role = "staff"; status = "pending"; invitedBy = consumedBy; }
+    }
+    await supabase.from("salon_members").insert({ user_id: data.user?.id, role, status, invited_by: invitedBy });
     setLoading(false);
     // 登録完了アラートを出してからそのままアプリへ
     alert("登録が完了しました！\nSALON NOTE へようこそ 🌷");
@@ -564,7 +566,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const generateInvite = async () => {
     if (members.filter(m=>m.status==="active").length >= 5) { alert("メンバーは最大5人までです"); return; }
     setInviteLoading(true);
-    const token = genId() + genId();
+    const token = crypto.randomUUID().replace(/-/g, "");
     await supabase.from("invitations").insert({ token, invited_by: session.user.id });
     setInviteUrl(`${window.location.origin}?invite=${token}`);
     setInviteLoading(false);
