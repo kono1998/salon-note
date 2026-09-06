@@ -49,14 +49,12 @@ export default function PaymentPage({ session, onBack }) {
             <div style={{ fontSize:13, color:T.muted, lineHeight:1.8 }}>顧客数が10人を超えました。<br/>プレミアムプランで無制限にご利用いただけます。</div>
           </div>
 
-          {/* 料金カード */}
           <div style={{ background:T.accent+"12", border:`1px solid ${T.accent}40`, borderRadius:14, padding:"20px 24px", marginBottom:24, textAlign:"center" }}>
             <div style={{ fontSize:12, color:T.sub, marginBottom:4, letterSpacing:"0.1em", fontFamily:"'Cormorant Garamond',serif" }}>月額プラン</div>
             <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:42, color:T.accent, fontWeight:"bold" }}>¥390</div>
             <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>/ 月（税込）・いつでも解約可能</div>
           </div>
 
-          {/* 特典リスト */}
           <div style={{ marginBottom:24 }}>
             {[
               "顧客登録 無制限",
@@ -93,7 +91,9 @@ export default function PaymentPage({ session, onBack }) {
             クレジットカード情報はStripeが管理します。
           </div>
         </div>
-        <div style={{ textAlign:"center", marginTop:20, fontSize:10, color:T.muted, opacity:0.6 }}>Powered by sorato.</div>
+        <div style={{ textAlign:"center", marginTop:20, fontSize:10, color:T.muted, opacity:0.6 }}>
+          Powered by sorato.　・　<a href="/legal" style={{ color:T.muted, textDecoration:"underline" }}>特定商取引法に基づく表記</a>
+        </div>
       </div>
     </div>
   );
