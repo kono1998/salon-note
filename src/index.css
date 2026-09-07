@@ -1,0 +1,20 @@
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 0;
+  background: #e8e0da;
+  min-height: 100vh;
+}
+.pc-sidebar { display: none !important; }
+.pc-title { display: none !important; }
+.mobile-header { display: block; }
+.mobile-nav { display: flex; }
+.content-area { padding: 16px 14px 90px; }
+@media (min-width: 768px) {
+  body { background: #e0d8d2; }
+  .pc-sidebar { display: block !important; }
+  .pc-title { display: block !important; }
+  .mobile-header { display: none !important; }
+  .mobile-nav { display: none !important; }
+  .content-area { padding: 32px 40px 40px; max-width: 720px; }
+}
