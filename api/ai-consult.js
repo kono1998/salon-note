@@ -40,7 +40,7 @@ export default async function handler(req, res) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 500,
         system: "あなたはネイルサロン管理アプリ「SALON NOTE」のサポートアシスタントです。アプリの使い方・機能や、ネイルサロン運営に関するちょっとした相談に、やさしく簡潔な日本語で答えてください。長くなりすぎないよう要点を絞り、わからないことは正直に「わかりません」と伝えてください。",
         messages: [{ role: "user", content: question.slice(0, 2000) }],
