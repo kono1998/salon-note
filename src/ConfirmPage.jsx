@@ -95,7 +95,7 @@ export default function ConfirmPage() {
       <div style={styles.wrap}>
         <div style={styles.card}>
           <div style={styles.logo}>✦ SALON NOTE</div>
-          <div style={{ ...styles.icon }}>⏳</div>
+          <div style={{ ...styles.icon }}>…</div>
           <div style={styles.title}>認証中...</div>
           <div style={styles.body}>メールアドレスを確認しています。<br/>しばらくお待ちください。</div>
         </div>
@@ -108,7 +108,7 @@ export default function ConfirmPage() {
       <div style={styles.wrap}>
         <div style={styles.card}>
           <div style={styles.logo}>✦ SALON NOTE</div>
-          <div style={styles.icon}>⚠️</div>
+          <div style={styles.icon}>×</div>
           <div style={styles.title}>リンクが無効です</div>
           <div style={styles.body}>
             このリンクは期限切れか、すでに使用済みです。<br/>
@@ -124,7 +124,7 @@ export default function ConfirmPage() {
     <div style={styles.wrap}>
       <div style={styles.card}>
         <div style={styles.logo}>✦ SALON NOTE</div>
-        <div style={styles.icon}>✅</div>
+        <div style={styles.icon}>✓</div>
         <div style={styles.title}>認証が完了しました！</div>
         <div style={styles.body}>
           メールアドレスの確認が完了しました。<br/>

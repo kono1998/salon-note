@@ -44,7 +44,6 @@ export default function PaymentPage({ session, onBack }) {
 
         <div style={{ background:T.card, borderRadius:20, padding:"32px 28px", border:`1px solid ${T.border}`, boxShadow:"0 4px 24px rgba(0,0,0,0.08)" }}>
           <div style={{ textAlign:"center", marginBottom:24 }}>
-            <div style={{ fontSize:40, marginBottom:12 }}>🌷</div>
             <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, color:T.text, marginBottom:8 }}>プレミアムプランへアップグレード</div>
             <div style={{ fontSize:13, color:T.muted, lineHeight:1.8 }}>顧客数が10人を超えました。<br/>プレミアムプランで無制限にご利用いただけます。</div>
           </div>

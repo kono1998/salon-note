@@ -42,11 +42,9 @@ export default function CustomerForm() {
         <div style={s.sub}>エクラエルネイルスタジオ</div>
       </div>
       <div style={{ ...s.body, textAlign:"center", paddingTop:60 }}>
-        <div style={{ fontSize:48, marginBottom:20 }}>✨</div>
-        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, color:"#c8937a", marginBottom:12 }}>ご登録ありがとうございます🌼</div>
+        <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, color:"#c8937a", marginBottom:12 }}>ご登録ありがとうございます</div>
         <div style={{ fontSize:14, color:"#7a6a60", lineHeight:1.8 }}>
-          本日はお越しいただきまして<br/>誠にありがとうございます🙇‍♀️
-        </div>
+          本日はお越しいただきまして<br/>誠にありがとうございます        </div>
       </div>
     </div>
   );
@@ -115,8 +113,7 @@ export default function CustomerForm() {
             <div style={s.policy}>
               ご予約のキャンセル・変更は、前日までにご連絡いただけると大変助かります。{"\n\n"}
               やむを得ない事情でのキャンセルはもちろん対応しております。ただし、度重なるキャンセルが続く場合は、次回以降のご予約時に個別でご相談させていただく場合がございます。{"\n\n"}
-              ご連絡はLINEまたはお電話にてお願いします。なお、遅刻の場合は施術時間が短縮される場合があります。どうぞお気軽にご連絡ください🌸
-            </div>
+              ご連絡はLINEまたはお電話にてお願いします。なお、遅刻の場合は施術時間が短縮される場合があります。どうぞお気軽にご連絡ください            </div>
             <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", fontSize:14 }}>
               <input type="checkbox" checked={agrees.cancel} onChange={e=>setAgrees(a=>({...a,cancel:e.target.checked}))} style={{ width:18, height:18 }} />
               上記の内容を確認しました

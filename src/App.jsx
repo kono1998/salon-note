@@ -93,7 +93,7 @@ function AuthScreen() {
     if (inviteToken) await supabase.from("invitations").update({ used: true }).eq("token", inviteToken);
     setLoading(false);
     // 登録完了アラートを出してからそのままアプリへ
-    alert("登録が完了しました！\nSALON NOTE へようこそ 🌷");
+    alert("登録が完了しました！\nSALON NOTE へようこそ ");
     // セッションが自動で確立されているのでそのまま画面が切り替わる
   };
 
@@ -219,6 +219,9 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [loading,   setLoading]   = useState(true);
   const [themeKey,  setThemeKey]  = useState(() => LS.get("sn4_theme", "sakura"));
   const [payments,  setPayments]  = useState(["現金","クレジット","電子マネー"]);
+  const [voiceInput, setVoiceInput] = useState(false);
+  const [micActive,  setMicActive]  = useState(null);
+  const micRecRef = useRef(null);
   const [salonInfo, setSalonInfo] = useState({ name:"", genre:"" });
   const [showBackupAlert, setShowBackupAlert] = useState(false);
   const T = THEMES[themeKey] || THEMES.sakura;
@@ -239,6 +242,23 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [editKarteId,  setEditKarteId]  = useState(null);
 
   const EMPTY_C = { name:"", phone:"", email:"", birthday:"", allergy:"", notes:"", memo:"" };
+  // 誕生日は年が未入力でも月日だけ保存できるようにする（不明年は 0000 で保持）
+  const BDAY_Y_UNKNOWN = "0000";
+  const bdayPart = (b, part) => {
+    const v = b || `${BDAY_Y_UNKNOWN}-00-00`;
+    if (part==="y") { const y=v.slice(0,4); return y===BDAY_Y_UNKNOWN?"":y; }
+    if (part==="m") { const m=v.slice(5,7); return m==="00"?"":m; }
+    const d=v.slice(8,10); return d==="00"?"":d;
+  };
+  const setBdayPart = (b, part, val) => {
+    const v = b || `${BDAY_Y_UNKNOWN}-00-00`;
+    const y = part==="y" ? (val||BDAY_Y_UNKNOWN) : v.slice(0,4);
+    const m = part==="m" ? (val||"00") : v.slice(5,7);
+    const d = part==="d" ? (val||"00") : v.slice(8,10);
+    if (y===BDAY_Y_UNKNOWN && m==="00" && d==="00") return "";
+    return `${y}-${m}-${d}`;
+  };
+  const formatBday = b => { if (!b) return ""; return b.startsWith(BDAY_Y_UNKNOWN+"-") ? b.slice(5).replace("-","/")+"（年不明）" : b; };
   const EMPTY_K = { clientId:"", date:todayStr(), menuId:"", price:"", treatMemo:"", talkMemo:"", photo:"" };
   const [cf, setCf] = useState(EMPTY_C);
   const [kf, setKf] = useState(EMPTY_K);
@@ -284,6 +304,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
       if (data.payments) setPayments(data.payments);
       if (data.theme) { setThemeKey(data.theme); LS.set("sn4_theme", data.theme); }
       if (data.salon_name !== undefined) setSalonInfo({ name: data.salon_name || "", genre: data.genre || "" });
+      if (data.voice_input_enabled !== undefined) setVoiceInput(!!data.voice_input_enabled);
     }
   };
 
@@ -386,9 +407,10 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     setShowClientModal(false);
   };
   const deleteClient = async id => {
-    if (!confirm("この顧客とカルテ履歴を全て削除しますか？")) return;
-    await supabase.from("kartes").delete().eq("client_id", id);
-    await supabase.from("clients").delete().eq("id", id);
+    if (!confirm("この顧客とカルテ履歴を全て削除します。\nこの操作は元に戻せません。本当に削除しますか？")) return;
+    const { error: kErr } = await supabase.from("kartes").delete().eq("client_id", id);
+    const { error: cErr } = await supabase.from("clients").delete().eq("id", id);
+    if (kErr || cErr) { alert("削除に失敗しました。時間をおいて再度お試しください。\n" + ((cErr||kErr).message||"")); return; }
     await fetchClients();
     await fetchKartes();
     if (detailId===id) setDetailId(null);
@@ -420,8 +442,9 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     setShowKarteModal(false);
   };
   const deleteKarte = async id => {
-    if (!confirm("このカルテを削除しますか？")) return;
-    await supabase.from("kartes").delete().eq("id", id);
+    if (!confirm("このカルテを削除します。\nこの操作は元に戻せません。本当に削除しますか？")) return;
+    const { error } = await supabase.from("kartes").delete().eq("id", id);
+    if (error) { alert("削除に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
     await fetchKartes();
   };
   const handlePhoto = e => {
@@ -495,6 +518,12 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     const total = Object.values(map).reduce((s,v)=>s+v,0);
     return Object.entries(map).map(([name,amt]) => ({ name, amt, pct: total>0 ? amt/total : 0 })).sort((a,b)=>b.amt-a.amt);
   };
+  const paymentBreakdown = (ks) => {
+    const map = {};
+    ks.forEach(k => { const name = k.payment || "未設定"; map[name] = (map[name]||0) + (parseInt(k.price)||0); });
+    const total = Object.values(map).reduce((s,v)=>s+v,0);
+    return Object.entries(map).map(([name,amt]) => ({ name, amt, pct: total>0 ? amt/total : 0 })).sort((a,b)=>b.amt-a.amt);
+  };
   const PIE_COLORS = ["#c8937a","#d4b08a","#a0897a","#7a6a5a","#b09a92","#e8c8a8","#8a7060","#c0a080"];
   const PieChart = ({ data, size=120 }) => {
     if (!data.length) return null;
@@ -525,6 +554,22 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   );
   const Card = ({ children, style, onClick }) => (
     <div onClick={onClick} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:13, padding:"14px 16px", marginBottom:10, boxShadow:"0 1px 4px rgba(0,0,0,0.06)", cursor:onClick?"pointer":"default", ...style }}>{children}</div>
+  );
+  const startVoiceInput = (field, onResult) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert("お使いのブラウザは音声入力に対応していません（Chromeでお試しください）"); return; }
+    if (micActive === field) { micRecRef.current?.stop(); return; }
+    const rec = new SR();
+    rec.lang = "ja-JP"; rec.interimResults = false; rec.continuous = false;
+    rec.onresult = e => { const text = e.results[0][0].transcript; onResult(text); };
+    rec.onerror = () => setMicActive(null);
+    rec.onend = () => setMicActive(null);
+    micRecRef.current = rec;
+    setMicActive(field);
+    rec.start();
+  };
+  const MicBtn = ({ field, onResult }) => !voiceInput ? null : (
+    <button type="button" onClick={() => startVoiceInput(field, onResult)} style={{ fontSize:11, color:micActive===field?"#fff":T.accent, background:micActive===field?"#d06050":"none", border:`1px solid ${micActive===field?"#d06050":T.accent}`, borderRadius:14, padding:"2px 10px", cursor:"pointer", flexShrink:0 }}>{micActive===field?"● 録音中…（タップで停止）":"● 音声入力"}</button>
   );
 
   const SvgIcon = ({ type, color }) => {
@@ -566,6 +611,21 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackList, setFeedbackList] = useState([]);
   const [showFeedbackList, setShowFeedbackList] = useState(false);
+  const [aiQ, setAiQ] = useState("");
+  const [aiA, setAiA] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const askAI = async () => {
+    if (!aiQ.trim() || aiLoading) return;
+    setAiLoading(true); setAiA("");
+    try {
+      const r = await fetch("/api/ai-consult", { method:"POST", headers:{ "content-type":"application/json", authorization:`Bearer ${session.access_token}` }, body: JSON.stringify({ question: aiQ.trim() }) });
+      const data = await r.json();
+      setAiA(data.answer || "回答を取得できませんでした。時間をおいて再度お試しください。");
+    } catch (e) {
+      setAiA("通信エラーが発生しました。時間をおいて再度お試しください。");
+    }
+    setAiLoading(false);
+  };
 
   const submitFeedback = async () => {
     if (!feedbackText.trim()) return;
@@ -598,8 +658,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
             </div>
           ))}
           <div style={{ padding:"20px 24px 0", marginTop:12, borderTop:`1px solid ${T.border}` }}>
-            <div style={{ fontSize:11, color:T.muted, marginBottom:6, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{session.user.email}</div>
-            <button onClick={() => supabase.auth.signOut()} style={{ fontSize:11, color:T.muted, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"5px 10px", cursor:"pointer", fontFamily:"inherit" }}>ログアウト</button>
+            <div style={{ fontSize:11, color:T.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{session.user.email}</div>
           </div>
         </div>
 
@@ -613,7 +672,6 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                 {salonInfo.name && <div style={{ fontSize:11, color:T.sub, marginTop:2, fontFamily:"'Cormorant Garamond',serif" }}>by {salonInfo.name}{salonInfo.genre ? `　✦ ${salonInfo.genre}` : ""}</div>}
                 {!salonInfo.name && <div style={{ fontSize:10, color:T.muted, marginTop:1 }}>サロン管理アプリ</div>}
               </div>
-              <button onClick={() => supabase.auth.signOut()} style={{ fontSize:11, color:T.muted, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"5px 10px", cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>ログアウト</button>
             </div>
           </div>
           {/* PC page title */}
@@ -631,7 +689,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
               {clients.length >= 10 && subStatus !== "active" && (
                 <div onClick={onShowPayment} style={{ background:"#c8937a18", border:"1px solid #c8937a40", borderRadius:12, padding:"12px 16px", marginBottom:12, cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <div>
-                    <div style={{ fontSize:13, color:"#c8937a", fontWeight:"bold" }}>🌷 顧客数が10人に達しました</div>
+                    <div style={{ fontSize:13, color:"#c8937a", fontWeight:"bold" }}>顧客数が10人に達しました</div>
                     <div style={{ fontSize:11, color:"#b09a92", marginTop:2 }}>プレミアムプランで無制限に登録できます（月額390円）</div>
                   </div>
                   <div style={{ fontSize:12, color:"#c8937a", flexShrink:0, marginLeft:8 }}>詳細 ›</div>
@@ -652,10 +710,10 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                           <span style={{ fontSize:15, fontWeight:"bold", color:T.text }}>{c.name}</span>
-                          {isBday && <span style={{ fontSize:12 }}>🎂 今日誕生日！</span>}
+                          {isBday && <span style={{ fontSize:12 }}>今日誕生日！</span>}
                         </div>
                         {c.phone && <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>{c.phone}{c.email?`  ${c.email}`:""}</div>}
-                        {c.allergy && <div style={{ fontSize:11, color:"#d06050", marginTop:3 }}>⚠ {c.allergy}</div>}
+                        {c.allergy && <div style={{ fontSize:11, color:"#d06050", marginTop:3 }}>{c.allergy}</div>}
                         {lv ? <div style={{ fontSize:11, color:T.accent, marginTop:3 }}>前回 {lv} ご来店</div> : <div style={{ fontSize:11, color:T.muted, marginTop:3 }}>来店記録なし</div>}
                       </div>
                       <div style={{ display:"flex", gap:5, flexShrink:0 }} onClick={e=>e.stopPropagation()}>
@@ -665,7 +723,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                     </div>
                     {isOpen && (
                       <div style={{ marginTop:12, borderTop:`1px solid ${T.border}`, paddingTop:12 }}>
-                        {c.birthday && <div style={{ fontSize:13, marginBottom:5 }}><span style={{ color:T.sub }}>誕生日: </span>{c.birthday}</div>}
+                        {c.birthday && <div style={{ fontSize:13, marginBottom:5 }}><span style={{ color:T.sub }}>誕生日: </span>{formatBday(c.birthday)}</div>}
                         {c.notes && <div style={{ fontSize:13, marginBottom:5 }}><span style={{ color:T.sub }}>注意事項: </span>{c.notes}</div>}
                         {c.memo  && <div style={{ fontSize:13, marginBottom:10 }}><span style={{ color:T.sub }}>特徴メモ: </span>{c.memo}</div>}
                         <div style={{ fontSize:11, color:T.sub, letterSpacing:"0.08em", fontFamily:"'Cormorant Garamond',serif", marginBottom:8 }}>来店カルテ履歴</div>
@@ -675,9 +733,9 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
                               <div style={{ flex:1, minWidth:0 }}>
                                 <div style={{ fontSize:13, fontWeight:"bold" }}>{k.date} — ¥{k.price||"−"}{k.payment ? <span style={{ marginLeft:6, fontSize:11, background:T.accent+"22", color:T.accent, borderRadius:20, padding:"1px 7px" }}>{k.payment}</span> : null}</div>
-                                {k.menuId && getMenu(k.menuId) && <div style={{ fontSize:12, color:T.accent, marginTop:1 }}>📋 {getMenu(k.menuId).name}</div>}
+                                {k.menuId && getMenu(k.menuId) && <div style={{ fontSize:12, color:T.accent, marginTop:1 }}>{getMenu(k.menuId).name}</div>}
                                 {k.treatMemo && <div style={{ fontSize:12, color:T.muted, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>施術: {k.treatMemo}</div>}
-                                {k.photo && <button onClick={e => { e.stopPropagation(); setLightbox(k.photo); }} style={{ marginTop:4, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"3px 9px", fontSize:11, color:T.sub, cursor:"pointer" }}>📷 写真を見る</button>}
+                                {k.photo && <button onClick={e => { e.stopPropagation(); setLightbox(k.photo); }} style={{ marginTop:4, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"3px 9px", fontSize:11, color:T.sub, cursor:"pointer" }}>写真を見る</button>}
                               </div>
                               <div style={{ display:"flex", gap:5, flexShrink:0 }} onClick={e=>e.stopPropagation()}>
                                 <Btn small color={T.sub} onClick={() => openEditKarte(k)}>編集</Btn>
@@ -732,7 +790,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
               </Card>
               {birthdayClientsThisMonth().length>0 && (
                 <Card style={{ background:T.accent+"12", border:`1px solid ${T.accent}40` }}>
-                  <div style={{ fontSize:12, color:T.accent, fontFamily:"'Cormorant Garamond',serif", marginBottom:8 }}>🎂 今月の誕生日</div>
+                  <div style={{ fontSize:12, color:T.accent, fontFamily:"'Cormorant Garamond',serif", marginBottom:8 }}>今月の誕生日</div>
                   {birthdayClientsThisMonth().map(c => <div key={c.id} style={{ fontSize:13, marginBottom:4 }}>{c.birthday.slice(5).replace("-","/")}　{c.name}</div>)}
                 </Card>
               )}
@@ -748,12 +806,12 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                       <Card key={k.id}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                           <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontSize:15, fontWeight:"bold" }}>{c?.name||"不明"} {isBday?"🎂":""}</div>
-                            {k.menuId && getMenu(k.menuId) && <div style={{ fontSize:12, color:T.accent, marginTop:2 }}>📋 {getMenu(k.menuId).name}</div>}
+                            <div style={{ fontSize:15, fontWeight:"bold" }}>{c?.name||"不明"} {isBday?"":""}</div>
+                            {k.menuId && getMenu(k.menuId) && <div style={{ fontSize:12, color:T.accent, marginTop:2 }}>{getMenu(k.menuId).name}</div>}
                             <div style={{ fontSize:13, color:T.muted }}>¥{k.price||"−"}{k.payment ? <span style={{ marginLeft:8, fontSize:11, background:T.accent+"22", color:T.accent, borderRadius:20, padding:"1px 8px" }}>{k.payment}</span> : null}</div>
                             {k.treatMemo && <div style={{ fontSize:12, color:T.muted, marginTop:4 }}>施術: {k.treatMemo}</div>}
                             {k.talkMemo  && <div style={{ fontSize:12, color:T.muted }}>会話: {k.talkMemo}</div>}
-                            {k.photo && <button onClick={() => setLightbox(k.photo)} style={{ marginTop:6, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"4px 10px", fontSize:11, color:T.sub, cursor:"pointer" }}>📷 写真を見る</button>}
+                            {k.photo && <button onClick={() => setLightbox(k.photo)} style={{ marginTop:6, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"4px 10px", fontSize:11, color:T.sub, cursor:"pointer" }}>写真を見る</button>}
                           </div>
                           <div style={{ display:"flex", gap:5, flexShrink:0 }}>
                             <Btn small color={T.sub} onClick={() => openEditKarte(k)}>編集</Btn>
@@ -770,16 +828,16 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
             {tab==="pending" && <>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
                 <div style={{ fontSize:13, color:T.sub, fontFamily:"'Cormorant Garamond',serif" }}>お客様登録フォームの送信一覧</div>
-                <Btn small onClick={fetchPending}>🔄 更新</Btn>
+                <Btn small onClick={fetchPending}>更新</Btn>
               </div>
               <Card style={{ marginBottom:16, background:T.accent+"10", border:`1px solid ${T.accent}40` }}>
-                <div style={{ fontSize:14, fontWeight:"bold", color:T.text, marginBottom:8 }}>📱 お客様用QRコード</div>
+                <div style={{ fontSize:14, fontWeight:"bold", color:T.text, marginBottom:8 }}>お客様用QRコード</div>
                 <div style={{ fontSize:12, color:T.muted, marginBottom:12, lineHeight:1.7 }}>このQRコードをサロンに掲示してください。<br/>お客様がスキャンすると登録フォームが開きます。</div>
                 <div style={{ background:"#fff", padding:16, borderRadius:12, textAlign:"center", marginBottom:10 }}>
                   <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(REGISTER_URL)}`} alt="QR Code" style={{ width:200, height:200, display:"block", margin:"0 auto" }} />
                   <div style={{ fontSize:11, color:T.muted, marginTop:8 }}>{REGISTER_URL}</div>
                 </div>
-                <Btn full color={T.sub} onClick={() => window.print()}>🖨️ 印刷する</Btn>
+                <Btn full color={T.sub} onClick={() => window.print()}>印刷する</Btn>
               </Card>
               {loadingPending && <div style={{ textAlign:"center", color:T.muted, fontSize:13, padding:"20px 0" }}>読み込み中...</div>}
               {!loadingPending && pending.length === 0 && <div style={{ textAlign:"center", color:T.muted, fontSize:13, padding:"30px 0" }}>承認待ちのお客様はいません</div>}
@@ -794,7 +852,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   </div>
                   {p.birthday && <div style={{ fontSize:13, marginBottom:4 }}><span style={{ color:T.sub }}>生年月日: </span>{p.birthday}</div>}
                   {p.address  && <div style={{ fontSize:13, marginBottom:4 }}><span style={{ color:T.sub }}>住所: </span>{p.address}</div>}
-                  {p.allergy  && <div style={{ fontSize:13, marginBottom:4, color:"#d06050" }}>⚠ {p.allergy}</div>}
+                  {p.allergy  && <div style={{ fontSize:13, marginBottom:4, color:"#d06050" }}>{p.allergy}</div>}
                   <div style={{ display:"flex", gap:6, marginTop:4 }}>
                     {[["agree_service","利用規約"],["agree_privacy","プライバシー"],["agree_cancel","キャンセル"]].map(([k,l]) => (
                       <span key={k} style={{ fontSize:11, background:p[k]?T.accent+"22":"#ff000020", color:p[k]?T.accent:"#cc7070", borderRadius:20, padding:"2px 8px" }}>{p[k]?"✓ ":"✗ "}{l}</span>
@@ -810,7 +868,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
 
             {/* 出力 */}
             {tab==="cms" && <>
-              <div style={{ fontSize:13, color:T.sub, fontFamily:"'Cormorant Garamond',serif", letterSpacing:"0.08em", marginBottom:8 }}>年間売上（確定申告用）</div>
+              <div style={{ fontSize:13, color:T.sub, fontFamily:"'Cormorant Garamond',serif", letterSpacing:"0.08em", marginBottom:8 }}>年間売上</div>
               <Card style={{ padding:"12px 16px", marginBottom:10 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                   <button onClick={() => setCmsYear(y=>y-1)} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:7, width:32, height:32, cursor:"pointer", color:T.accent, fontSize:16, lineHeight:"30px", textAlign:"center" }}>‹</button>
@@ -822,7 +880,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                 <Card style={{ flex:1, padding:"12px 14px", marginBottom:0 }}><div style={{ fontSize:11, color:T.sub, fontFamily:"'Cormorant Garamond',serif" }}>件数</div><div style={{ fontSize:22, fontWeight:"bold", color:T.accent, marginTop:2 }}>{yearKartes.length}<span style={{ fontSize:13, color:T.muted, marginLeft:2 }}>件</span></div></Card>
                 <Card style={{ flex:1, padding:"12px 14px", marginBottom:0 }}><div style={{ fontSize:11, color:T.sub, fontFamily:"'Cormorant Garamond',serif" }}>合計金額</div><div style={{ fontSize:22, fontWeight:"bold", color:T.accent, marginTop:2 }}>¥{totalAmt.toLocaleString()}</div></Card>
               </div>
-              {yearKartes.length>0 && <div style={{ marginBottom:12 }}><Btn full onClick={() => doCopy(yearCsvText,"year")}>{copiedId==="year"?"✓ コピーしました！":"📋 年間データをコピー（タブ区切り）"}</Btn></div>}
+              {yearKartes.length>0 && <div style={{ marginBottom:12 }}><Btn full onClick={() => doCopy(yearCsvText,"year")}>{copiedId==="year"?"✓ コピーしました！":"年間データをコピー（タブ区切り）"}</Btn></div>}
               {yearKartes.length===0
                 ? <div style={{ textAlign:"center", color:T.muted, fontSize:13, padding:"20px 0" }}>{cmsYear}年のカルテはありません</div>
                 : <Card style={{ padding:0, overflow:"hidden" }}>
@@ -848,7 +906,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
             {tab==="graph" && <>
               <Card style={{ padding:"12px 16px", marginBottom:16 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                  {graphMonthSel !== null && <button onClick={() => setGraphMonthSel(null)} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"4px 10px", cursor:"pointer", color:T.accent, fontSize:12 }}>← 年間</button>}
+                  {graphMonthSel !== null && <button onClick={() => setGraphMonthSel(null)} style={{ background:T.accent, border:`1px solid ${T.accent}`, borderRadius:7, padding:"6px 12px", cursor:"pointer", color:"#fff", fontSize:12, fontWeight:"bold", flexShrink:0 }}>← 年間表示に戻る</button>}
                   <button onClick={() => setGraphYear(y=>y-1)} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:7, width:32, height:32, cursor:"pointer", color:T.accent, fontSize:16, lineHeight:"30px", textAlign:"center" }}>‹</button>
                   <span style={{ fontSize:18, fontFamily:"'Cormorant Garamond',serif", minWidth:100, textAlign:"center" }}>{graphYear}年{graphMonthSel !== null ? `${graphMonthSel+1}月` : ""}</span>
                   <button onClick={() => setGraphYear(y=>y+1)} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:7, width:32, height:32, cursor:"pointer", color:T.accent, fontSize:16, lineHeight:"30px", textAlign:"center" }}>›</button>
@@ -869,6 +927,22 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                           <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
                             <div style={{ display:"flex", alignItems:"center", gap:6 }}><div style={{ width:10, height:10, borderRadius:2, background:PIE_COLORS[i%PIE_COLORS.length], flexShrink:0 }} /><span style={{ fontSize:12, color:T.text }}>{d.name}</span></div>
                             <span style={{ fontSize:11, color:T.muted }}>{Math.round(d.pct*100)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </Card>
+                ) : null; })()}
+                {(() => { const yk = kartes.filter(k=>k.date.startsWith(String(graphYear))); const pbd = paymentBreakdown(yk); return pbd.length > 0 ? (
+                  <Card style={{ marginBottom:16 }}>
+                    <div style={{ fontSize:12, color:T.sub, marginBottom:14, fontFamily:"'Cormorant Garamond',serif" }}>お支払い方法構成</div>
+                    <div style={{ display:"flex", gap:16, alignItems:"center" }}>
+                      <PieChart data={pbd} size={110} />
+                      <div style={{ flex:1 }}>
+                        {pbd.slice(0,6).map((d,i) => (
+                          <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:6 }}><div style={{ width:10, height:10, borderRadius:2, background:PIE_COLORS[i%PIE_COLORS.length], flexShrink:0 }} /><span style={{ fontSize:12, color:T.text }}>{d.name}</span></div>
+                            <div style={{ textAlign:"right" }}><div style={{ fontSize:11, color:T.muted }}>{Math.round(d.pct*100)}%</div><div style={{ fontSize:10, color:T.muted }}>¥{d.amt.toLocaleString()}</div></div>
                           </div>
                         ))}
                       </div>
@@ -954,8 +1028,12 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
 
             {/* 設定 */}
             {tab==="settings" && <>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12, gap:8 }}>
+                <div style={{ fontSize:11, color:T.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{session.user.email}</div>
+                <button onClick={() => { if (confirm("ログアウトしますか？")) supabase.auth.signOut(); }} style={{ fontSize:11, color:T.muted, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"5px 10px", cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>ログアウト</button>
+              </div>
               <div style={{ display:"flex", gap:4, marginBottom:16, flexWrap:"wrap" }}>
-                {[["salon","🏠 サロン"],["theme","🎨 テーマ"],["menus","📋 メニュー"],["payments","💳 決済"],["templates","✏️ テンプレ"],["members","👥 メンバー"],["backup","💾 バックアップ"]].map(([key,label]) => (
+                {[["salon","サロン"],["theme","テーマ"],["menus","メニュー"],["payments","決済"],["templates","テンプレ"],["members","メンバー"],["backup","バックアップ"]].map(([key,label]) => (
                   <button key={key} onClick={() => setSettingsSub(key)} style={{ padding:"8px 14px", borderRadius:20, border:`1px solid ${settingsSub===key?T.accent:T.border}`, background:settingsSub===key?T.accent:"none", color:settingsSub===key?"#fff":T.muted, cursor:"pointer", fontSize:12, fontFamily:"inherit" }}>{label}</button>
                 ))}
               </div>
@@ -981,6 +1059,18 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                     <div><Lbl t="ジャンル（複数可）" /><input defaultValue={salonInfo.genre} onBlur={async e => { const s={...salonInfo,genre:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: salonInfo.name, genre: e.target.value }); }} placeholder="ネイル・エステ" style={base} /></div>
                     <div style={{ fontSize:12, color:T.muted, lineHeight:1.7 }}>入力するとヘッダーに「by サロン名」と表示されます。</div>
                   </div>
+                </Card>
+              )}
+
+              {settingsSub==="salon" && (
+                <Card>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                    <div style={{ fontSize:15, fontFamily:"'Cormorant Garamond',serif", color:T.accent }}>録音記録モード</div>
+                    <button onClick={async () => { const v=!voiceInput; setVoiceInput(v); await saveSettings({ voice_input_enabled: v }); }} style={{ width:44, height:26, borderRadius:13, border:"none", background:voiceInput?T.accent:T.border, cursor:"pointer", position:"relative", flexShrink:0 }}>
+                      <div style={{ width:20, height:20, borderRadius:"50%", background:"#fff", position:"absolute", top:3, left:voiceInput?21:3, transition:"left 0.15s" }} />
+                    </button>
+                  </div>
+                  <div style={{ fontSize:12, color:T.muted, lineHeight:1.7 }}>オンにすると、カルテ入力画面の施術メモ・会話メモに音声入力ボタンが表示され、話した内容をそのまま文字に記録できます。<br/>※対応ブラウザ（Chrome推奨）でのみ使用できます。</div>
                 </Card>
               )}
 
@@ -1045,12 +1135,12 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   <div style={{ fontSize:12, color:T.muted, marginBottom:14, lineHeight:1.7 }}>最大5人までメンバーを招待できます。<br/>招待URLを発行してスタッフに共有してください。</div>
                   {isOwner && (
                     <div style={{ marginBottom:16 }}>
-                      <Btn full onClick={generateInvite} disabled={inviteLoading}>{inviteLoading?"生成中...":"🔗 招待URLを発行"}</Btn>
+                      <Btn full onClick={generateInvite} disabled={inviteLoading}>{inviteLoading?"生成中...":"招待URLを発行"}</Btn>
                       {inviteUrl && (
                         <div style={{ marginTop:12, background:T.bg, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px" }}>
                           <div style={{ fontSize:11, color:T.sub, marginBottom:6 }}>招待URL（一度だけ使用可能）</div>
                           <div style={{ fontSize:12, color:T.accent, wordBreak:"break-all", marginBottom:10 }}>{inviteUrl}</div>
-                          <Btn small onClick={() => { navigator.clipboard.writeText(inviteUrl); alert("コピーしました！"); }}>📋 コピー</Btn>
+                          <Btn small onClick={() => { navigator.clipboard.writeText(inviteUrl); alert("コピーしました！"); }}>コピー</Btn>
                         </div>
                       )}
                     </div>
@@ -1060,7 +1150,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                     <div key={m.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderBottom:`1px solid ${T.border}` }}>
                       <div>
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <span style={{ fontSize:14 }}>{m.role==="owner"?"👑 オーナー":"👤 スタッフ"}</span>
+                          <span style={{ fontSize:14 }}>{m.role==="owner"?"オーナー":"スタッフ"}</span>
                           <span style={{ fontSize:11, background:m.status==="active"?T.accent+"22":"#ffaa0022", color:m.status==="active"?T.accent:"#cc8800", borderRadius:20, padding:"2px 8px" }}>{m.status==="active"?"有効":"承認待ち"}</span>
                         </div>
                         {m.user_id === session.user.id && <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>（あなた）</div>}
@@ -1081,9 +1171,9 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   <div style={{ fontSize:15, fontFamily:"'Cormorant Garamond',serif", color:T.accent, marginBottom:8 }}>バックアップ</div>
                   <div style={{ fontSize:12, color:T.muted, marginBottom:14, lineHeight:1.7 }}>データはこのブラウザに保存されています。<br/>定期的にエクスポートしておくと安心です。</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                    <Btn full onClick={doExport}>📥 エクスポート（バックアップ保存）</Btn>
+                    <Btn full onClick={doExport}>エクスポート（バックアップ保存）</Btn>
                     <input type="file" accept=".json" ref={importRef} style={{ display:"none" }} onChange={doImport} />
-                    <Btn full color={T.sub} onClick={() => importRef.current.click()}>📤 インポート（バックアップから復元）</Btn>
+                    <Btn full color={T.sub} onClick={() => importRef.current.click()}>インポート（バックアップから復元）</Btn>
                   </div>
                 </Card>
                 <Card>
@@ -1094,6 +1184,32 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
               </>}
             </>}
 
+            {/* ═══ AIに相談（設定タブの下に常時表示） ═══ */}
+            {tab === "settings" && (
+              <div style={{ marginTop:24, marginBottom:8 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                  <div style={{ flex:1, height:1, background:T.border }} />
+                  <span style={{ fontSize:11, color:T.muted, letterSpacing:"0.1em", fontFamily:"'Cormorant Garamond',serif", whiteSpace:"nowrap" }}>AIに相談</span>
+                  <div style={{ flex:1, height:1, background:T.border }} />
+                </div>
+                <div style={{ background:T.accent+"0e", border:`1px solid ${T.accent}30`, borderRadius:14, padding:"18px 16px" }}>
+                  <div style={{ fontSize:13, color:T.accent, fontFamily:"'Cormorant Garamond',serif", marginBottom:4 }}>機能の使い方に迷ったらAIに相談</div>
+                  <div style={{ fontSize:11, color:T.muted, marginBottom:12, lineHeight:1.7 }}>SALON NOTEの使い方や機能について、気軽に質問できます。</div>
+                  <IMEArea
+                    value={aiQ}
+                    onChange={setAiQ}
+                    placeholder="例: 顧客データをまとめてコピーしたい、招待の使い方は？"
+                    rows={3}
+                    style={{ ...base, resize:"vertical", marginBottom:10 }}
+                  />
+                  <Btn full onClick={askAI} disabled={aiLoading||!aiQ.trim()}>{aiLoading?"考え中...":"質問する"}</Btn>
+                  {aiA && (
+                    <div style={{ fontSize:13, color:T.text, background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px", marginTop:12, lineHeight:1.8, whiteSpace:"pre-wrap" }}>{aiA}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* ═══ アンケート（設定タブの下に常時表示） ═══ */}
             {tab === "settings" && (
               <div style={{ marginTop:24, marginBottom:8 }}>
@@ -1103,7 +1219,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   <div style={{ flex:1, height:1, background:T.border }} />
                 </div>
                 <div style={{ background:T.accent+"0e", border:`1px solid ${T.accent}30`, borderRadius:14, padding:"18px 16px" }}>
-                  <div style={{ fontSize:13, color:T.accent, fontFamily:"'Cormorant Garamond',serif", marginBottom:4 }}>🌷 アプリへのご意見をお聞かせください</div>
+                  <div style={{ fontSize:13, color:T.accent, fontFamily:"'Cormorant Garamond',serif", marginBottom:4 }}>アプリへのご意見をお聞かせください</div>
                   <div style={{ fontSize:11, color:T.muted, marginBottom:12, lineHeight:1.7 }}>機能のご要望・使いにくい点・改善してほしいことなど、なんでもお気軽にどうぞ。</div>
                   <IMEArea
                     value={feedbackText}
@@ -1114,7 +1230,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   />
                   {feedbackSent && (
                     <div style={{ fontSize:12, color:T.accent, background:T.accent+"18", borderRadius:8, padding:"8px 12px", marginBottom:10 }}>
-                      ✓ 送信しました！ありがとうございます🌷
+                      ✓ 送信しました！ありがとうございます
                     </div>
                   )}
                   <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -1123,7 +1239,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                     </Btn>
                     {isOwner && (
                       <button onClick={fetchFeedback} style={{ width:"100%", fontSize:12, color:T.muted, background:"none", border:`1px solid ${T.border}`, borderRadius:9, padding:"10px 14px", cursor:"pointer", fontFamily:"inherit" }}>
-                        📋 受信したご意見を見る
+                        受信したご意見を見る
                       </button>
                     )}
                   </div>
@@ -1156,7 +1272,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
       {showBackupAlert && (
         <div style={{ position:"fixed", top:0, left:0, right:0, zIndex:300, background:"#c8937a", color:"#fff", padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", boxShadow:"0 2px 8px rgba(0,0,0,0.2)" }}>
           <div>
-            <div style={{ fontSize:13, fontWeight:"bold" }}>💾 バックアップのすすめ</div>
+            <div style={{ fontSize:13, fontWeight:"bold" }}>バックアップのすすめ</div>
             <div style={{ fontSize:11, marginTop:2, opacity:0.9 }}>データを定期的にエクスポートしましょう</div>
           </div>
           <div style={{ display:"flex", gap:8 }}>
@@ -1210,15 +1326,15 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   {cf.birthday && <button onClick={() => setCf(f=>({...f,birthday:""}))} style={{ fontSize:11, color:T.muted, background:"none", border:`1px solid ${T.border}`, borderRadius:14, padding:"2px 10px", cursor:"pointer" }}>クリア</button>}
                 </div>
                 <div style={{ display:"flex", gap:6 }}>
-                  <select value={cf.birthday?cf.birthday.slice(0,4):""} onChange={e => { const y=e.target.value; const cur=cf.birthday||"----01-01"; setCf(f=>({...f,birthday:y?y+cur.slice(4):""})); setClientDirty(true); }} style={{ ...base, flex:2 }}>
+                  <select value={bdayPart(cf.birthday,"y")} onChange={e => { setCf(f=>({...f,birthday:setBdayPart(f.birthday,"y",e.target.value)})); setClientDirty(true); }} style={{ ...base, flex:2 }}>
                     <option value="">年</option>
                     {Array.from({length:80},(_,i)=>new Date().getFullYear()-i).map(y=><option key={y} value={y}>{y}年</option>)}
                   </select>
-                  <select value={cf.birthday?cf.birthday.slice(5,7):""} onChange={e => { const m=e.target.value; const cur=cf.birthday||(new Date().getFullYear()+"-01-01"); setCf(f=>({...f,birthday:cur.slice(0,4)+"-"+m+cur.slice(7)})); setClientDirty(true); }} style={{ ...base, flex:1 }}>
+                  <select value={bdayPart(cf.birthday,"m")} onChange={e => { setCf(f=>({...f,birthday:setBdayPart(f.birthday,"m",e.target.value)})); setClientDirty(true); }} style={{ ...base, flex:1 }}>
                     <option value="">月</option>
                     {Array.from({length:12},(_,i)=>String(i+1).padStart(2,"0")).map(m=><option key={m} value={m}>{parseInt(m)}月</option>)}
                   </select>
-                  <select value={cf.birthday?cf.birthday.slice(8,10):""} onChange={e => { const d=e.target.value; const cur=cf.birthday||(new Date().getFullYear()+"-01-01"); setCf(f=>({...f,birthday:cur.slice(0,7)+"-"+d})); setClientDirty(true); }} style={{ ...base, flex:1 }}>
+                  <select value={bdayPart(cf.birthday,"d")} onChange={e => { setCf(f=>({...f,birthday:setBdayPart(f.birthday,"d",e.target.value)})); setClientDirty(true); }} style={{ ...base, flex:1 }}>
                     <option value="">日</option>
                     {Array.from({length:31},(_,i)=>String(i+1).padStart(2,"0")).map(d=><option key={d} value={d}>{parseInt(d)}日</option>)}
                   </select>
@@ -1257,7 +1373,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                     </div>
                   )}
                 </div>
-                {kf.clientId&&getClient(kf.clientId)?.allergy && <div style={{ fontSize:11, color:"#d06050", marginTop:5 }}>⚠ {getClient(kf.clientId).allergy}</div>}
+                {kf.clientId&&getClient(kf.clientId)?.allergy && <div style={{ fontSize:11, color:"#d06050", marginTop:5 }}>{getClient(kf.clientId).allergy}</div>}
               </div>
               <div><Lbl t="日付 *" /><input type="date" value={kf.date} onChange={e=>setKf(f=>({...f,date:e.target.value}))} style={{ ...base, WebkitAppearance:"none", appearance:"none", maxWidth:"100%" }} /></div>
               {menus.length>0 && (
@@ -1281,9 +1397,12 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                 </div>
               </div>
               <div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5, flexWrap:"wrap", gap:6 }}>
                   <Lbl t="施術メモ" />
-                  {templates.length>0 && <button onClick={() => setShowTplPicker(v=>!v)} style={{ fontSize:11, color:T.accent, background:"none", border:`1px solid ${T.accent}`, borderRadius:14, padding:"2px 10px", cursor:"pointer" }}>テンプレ {showTplPicker?"▲":"▼"}</button>}
+                  <div style={{ display:"flex", gap:6 }}>
+                    <MicBtn field="treat" onResult={text => { setKf(f=>({...f,treatMemo:(f.treatMemo?f.treatMemo+"\n":"")+text})); setKarteDirty(true); }} />
+                    {templates.length>0 && <button onClick={() => setShowTplPicker(v=>!v)} style={{ fontSize:11, color:T.accent, background:"none", border:`1px solid ${T.accent}`, borderRadius:14, padding:"2px 10px", cursor:"pointer" }}>テンプレ {showTplPicker?"▲":"▼"}</button>}
+                  </div>
                 </div>
                 {showTplPicker && (
                   <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
@@ -1294,13 +1413,19 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                 )}
                 <IMEArea value={kf.treatMemo} onChange={v=>{ setKf(f=>({...f,treatMemo:v})); setKarteDirty(true); }} placeholder="カット・カラー 7N…" rows={3} style={{...base,resize:"vertical"}} />
               </div>
-              <div><Lbl t="会話メモ" /><IMEArea value={kf.talkMemo} onChange={v=>setKf(f=>({...f,talkMemo:v}))} placeholder="旅行の話、次回パーマ希望…" rows={3} style={{...base,resize:"vertical"}} /></div>
+              <div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
+                  <Lbl t="会話メモ" />
+                  <MicBtn field="talk" onResult={text => setKf(f=>({...f,talkMemo:(f.talkMemo?f.talkMemo+"\n":"")+text}))} />
+                </div>
+                <IMEArea value={kf.talkMemo} onChange={v=>setKf(f=>({...f,talkMemo:v}))} placeholder="旅行の話、次回パーマ希望…" rows={3} style={{...base,resize:"vertical"}} />
+              </div>
               <div>
                 <Lbl t="写真（1枚）" />
                 {kf.photo && <img src={kf.photo} alt="" style={{ width:"100%", borderRadius:8, marginBottom:8, display:"block", objectFit:"contain" }} />}
                 <div style={{ display:"flex", gap:8 }}>
                   <input type="file" accept="image/*" ref={photoRef} style={{ display:"none" }} onChange={handlePhoto} />
-                  <Btn small color={T.sub} onClick={() => photoRef.current.click()}>📷 写真を選ぶ</Btn>
+                  <Btn small color={T.sub} onClick={() => photoRef.current.click()}>写真を選ぶ</Btn>
                   {kf.photo && <Btn small color={T.danger} onClick={() => setKf(f=>({...f,photo:""}))}>削除</Btn>}
                 </div>
               </div>
