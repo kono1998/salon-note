@@ -342,7 +342,9 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const saveC = c => { setClients(c); LS.set("sn4_clients", c); };
   const saveK = k => { setKartes(k); LS.set("sn4_kartes", k); };
   const saveSettings = async (patch) => {
-    await supabase.from("salon_settings").upsert({ user_id: session.user.id, ...patch, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    const { error } = await supabase.from("salon_settings").upsert({ user_id: session.user.id, ...patch, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    if (error) { console.error("saveSettings error:", error); alert("保存に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); }
+    return error;
   };
   const saveM = async m => { setMenus(m); await saveSettings({ menus: m }); };
   const saveT = async t => { setTemplates(t); await saveSettings({ templates: t }); };
@@ -356,15 +358,18 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const approvePending = async (p) => {
     if (!confirm(`${p.name} さんを顧客登録しますか？`)) return;
     const id = genId();
-    await supabase.from("clients").insert({ id, user_id: session.user.id, name: p.name, phone: p.phone||"", email: "", birthday: p.birthday||"", allergy: p.allergy||"", notes: "", memo: "" });
-    await supabase.from("pending_clients").update({ status:"approved" }).eq("id", p.id);
+    const { error: insErr } = await supabase.from("clients").insert({ id, user_id: session.user.id, name: p.name, phone: p.phone||"", email: "", birthday: p.birthday||"", allergy: p.allergy||"", notes: "", memo: "" });
+    if (insErr) { alert("登録に失敗しました。時間をおいて再度お試しください。\n" + (insErr.message||"")); return; }
+    const { error: updErr } = await supabase.from("pending_clients").update({ status:"approved" }).eq("id", p.id);
+    if (updErr) { console.error("pending update error:", updErr); }
     await fetchClients();
     setPending(pending.filter(x => x.id !== p.id));
     alert(`${p.name} さんを登録しました！`);
   };
   const rejectPending = async (p) => {
     if (!confirm(`${p.name} さんを削除しますか？`)) return;
-    await supabase.from("pending_clients").update({ status:"rejected" }).eq("id", p.id);
+    const { error } = await supabase.from("pending_clients").update({ status:"rejected" }).eq("id", p.id);
+    if (error) { alert("削除に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
     setPending(pending.filter(x => x.id !== p.id));
   };
 
@@ -373,19 +378,22 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     if (data) setMembers(data);
   };
   const approveMember = async (id) => {
-    await supabase.from("salon_members").update({ status:"active" }).eq("id", id);
+    const { error } = await supabase.from("salon_members").update({ status:"active" }).eq("id", id);
+    if (error) { alert("承認に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
     fetchMembers();
   };
   const removeMember = async (id) => {
     if (!confirm("このメンバーを削除しますか？")) return;
-    await supabase.from("salon_members").delete().eq("id", id);
+    const { error } = await supabase.from("salon_members").delete().eq("id", id);
+    if (error) { alert("削除に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
     fetchMembers();
   };
   const generateInvite = async () => {
     if (members.filter(m=>m.status==="active").length >= 5) { alert("メンバーは最大5人までです"); return; }
     setInviteLoading(true);
     const token = genId() + genId();
-    await supabase.from("invitations").insert({ token, invited_by: session.user.id });
+    const { error } = await supabase.from("invitations").insert({ token, invited_by: session.user.id });
+    if (error) { alert("招待URLの発行に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); setInviteLoading(false); return; }
     setInviteUrl(`${window.location.origin}?invite=${token}`);
     setInviteLoading(false);
   };
@@ -485,9 +493,9 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     else saveM([...menus, { id:genId(), name:menuForm.name, price:menuForm.price }]);
     setMenuForm({ name:"", price:"" });
   };
-  const deleteMenu = id => saveM(menus.filter(m => m.id!==id));
+  const deleteMenu = id => { if (!confirm("このメニューを削除しますか？")) return; saveM(menus.filter(m => m.id!==id)); };
   const addTpl = () => { if (!tplForm.trim()) { alert("テンプレート内容を入力してください"); return; } saveT([...templates, { id:genId(), text:tplForm }]); setTplForm(""); };
-  const deleteTpl = id => saveT(templates.filter(t => t.id!==id));
+  const deleteTpl = id => { if (!confirm("このテンプレートを削除しますか？")) return; saveT(templates.filter(t => t.id!==id)); };
 
   const doExport = () => {
     const data = JSON.stringify({ clients, kartes, menus, templates, exportedAt:new Date().toISOString() }, null, 2);
@@ -520,6 +528,16 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     };
     r.readAsText(file); e.target.value="";
   };
+  const deleteAllData = async () => {
+    if (!confirm(`全データを削除しますか？\n顧客${clients.length}件 / カルテ${kartes.length}件が完全に削除されます。\nこの操作は元に戻せません。`)) return;
+    if (!confirm("本当によろしいですか？もう一度確認します。削除を実行しますか？")) return;
+    const { error: kErr } = await supabase.from("kartes").delete().eq("user_id", session.user.id);
+    const { error: cErr } = await supabase.from("clients").delete().eq("user_id", session.user.id);
+    if (kErr || cErr) { alert("削除に失敗しました。時間をおいて再度お試しください。\n" + ((cErr||kErr).message||"")); return; }
+    await fetchClients();
+    await fetchKartes();
+    alert("全データを削除しました。");
+  };
 
   const { y:cy, m:cm } = calYM;
   const firstDay    = new Date(cy, cm, 1).getDay();
@@ -531,7 +549,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const yearKartes  = kartes.filter(k => k.date.startsWith(String(cmsYear))).sort((a,b) => a.date.localeCompare(b.date));
   const totalAmt    = yearKartes.reduce((s,k) => s+(parseInt(k.price)||0), 0);
   const yearCsvText = [`${cmsYear}年 売上記録`, `日付\tお客様名\t金額`, ...yearKartes.map(k => { const c=getClient(k.clientId); return `${k.date}\t${c?.name||"不明"}\t¥${parseInt(k.price||0).toLocaleString()}`; }), ``, `合計: ¥${totalAmt.toLocaleString()}（${yearKartes.length}件）`].join("\n");
-  const doCopy = (text, id) => { navigator.clipboard.writeText(text).then(() => { setCopiedId(id); setTimeout(() => setCopiedId(null), 2500); }); };
+  const doCopy = (text, id) => { navigator.clipboard.writeText(text).then(() => { setCopiedId(id); setTimeout(() => setCopiedId(null), 2500); }).catch(() => { alert("コピーに失敗しました。お使いのブラウザではこの操作がサポートされていない可能性があります。"); }); };
 
   const monthlyData = Array.from({ length:12 }, (_, i) => {
     const mm = String(i+1).padStart(2,"0");
@@ -1138,7 +1156,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                     <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
                       <span style={{ fontSize:14 }}>{p}</span>
                       {!["現金","クレジット","電子マネー"].includes(p)
-                        ? <Btn small color={T.danger} onClick={() => savePayments(payments.filter((_,j)=>j!==i))}>削除</Btn>
+                        ? <Btn small color={T.danger} onClick={() => { if (confirm("この支払い方法を削除しますか？")) savePayments(payments.filter((_,j)=>j!==i)); }}>削除</Btn>
                         : <span style={{ fontSize:11, color:T.muted }}>デフォルト</span>}
                     </div>
                   ))}
@@ -1156,7 +1174,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                         <div style={{ marginTop:12, background:T.bg, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px" }}>
                           <div style={{ fontSize:11, color:T.sub, marginBottom:6 }}>招待URL（一度だけ使用可能）</div>
                           <div style={{ fontSize:12, color:T.accent, wordBreak:"break-all", marginBottom:10 }}>{inviteUrl}</div>
-                          <Btn small onClick={() => { navigator.clipboard.writeText(inviteUrl); alert("コピーしました！"); }}>コピー</Btn>
+                          <Btn small onClick={() => { navigator.clipboard.writeText(inviteUrl).then(() => alert("コピーしました！")).catch(() => alert("コピーに失敗しました。URLを長押し（選択）して手動でコピーしてください。")); }}>コピー</Btn>
                         </div>
                       )}
                     </div>
@@ -1195,7 +1213,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                 <Card>
                   <div style={{ fontSize:15, fontFamily:"'Cormorant Garamond',serif", color:T.accent, marginBottom:8 }}>データ情報</div>
                   <div style={{ fontSize:13, color:T.muted, marginBottom:12 }}>顧客 {clients.length}件　/　カルテ {kartes.length}件　/　メニュー {menus.length}件</div>
-                  <Btn color={T.danger} onClick={() => { if (confirm("全データを削除しますか？この操作は戻せません。")) { saveC([]); saveK([]); } }}>全データを削除</Btn>
+                  <Btn color={T.danger} onClick={deleteAllData}>全データを削除</Btn>
                 </Card>
               </>}
             </>}
