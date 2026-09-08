@@ -7,12 +7,16 @@ export default function CustomerForm() {
   const [agrees, setAgrees] = useState({ service:false, privacy:false, cancel:false });
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  // このフォームがどのサロン（オーナー）宛のものかをURLの ?salon=user_id から取得
+  const [salonId] = useState(() => new URLSearchParams(window.location.search).get("salon") || "");
 
   const submit = async () => {
     if (!agrees.service || !agrees.privacy || !agrees.cancel) { alert("全ての同意が必要です"); return; }
     if (!form.name.trim()) { alert("お名前は必須です"); return; }
+    if (!salonId) { alert("このリンクは無効です。サロンのQRコードから再度アクセスしてください。"); return; }
     setLoading(true);
     const { error } = await supabase.from("pending_clients").insert([{
+      user_id: salonId,
       name: form.name, phone: form.phone,
       birthday: form.birthday, address: form.address, allergy: form.allergy,
       agree_service: agrees.service, agree_privacy: agrees.privacy, agree_cancel: agrees.cancel,

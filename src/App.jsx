@@ -661,7 +661,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
 
   const closeClientModal = () => { if (clientDirty && !confirm("変更を破棄しますか？")) return; setShowClientModal(false); setClientDirty(false); };
   const closeKarteModal  = () => { if (karteDirty  && !confirm("変更を破棄しますか？")) return; setShowKarteModal(false);  setKarteDirty(false); };
-  const REGISTER_URL = typeof window !== "undefined" ? window.location.origin + "/register" : "";
+  const REGISTER_URL = typeof window !== "undefined" ? window.location.origin + "/register?salon=" + session.user.id : "";
 
   // ── Feedback ──────────────────────────────────────────────────
   const [feedbackText, setFeedbackText] = useState("");
