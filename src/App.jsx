@@ -7,6 +7,19 @@ const LS = {
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// ── ログアウト ────────────────────────────────────────────────
+// signOut()がセッション不整合（リフレッシュトークン切れ等）でエラーになっても
+// 必ずログイン画面に戻れるよう、ローカルの認証情報を直接クリアしてから
+// リロードする（「ログアウトを押しても反応しない」を防ぐフォールバック）。
+const doLogout = async () => {
+  try { await supabase.auth.signOut(); } catch (e) { console.error("signOut error:", e); }
+  try {
+    Object.keys(localStorage).forEach(k => { if (k.startsWith("sb-")) localStorage.removeItem(k); });
+    Object.keys(sessionStorage).forEach(k => { if (k.startsWith("sb-")) sessionStorage.removeItem(k); });
+  } catch (e) {}
+  window.location.reload();
+};
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const currentYear = () => new Date().getFullYear();
 
@@ -211,7 +224,7 @@ export default function SalonApp() {
         <div style={{ textAlign:"center", background:T.card, borderRadius:16, padding:32, maxWidth:360, border:`1px solid ${T.border}` }}>
           <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, color:T.accent, marginBottom:12 }}>✦ 承認待ち</div>
           <div style={{ fontSize:13, color:T.muted, lineHeight:1.8, marginBottom:20 }}>オーナーの承認をお待ちください。<br/>承認後にご利用いただけます。</div>
-          <button onClick={() => supabase.auth.signOut()} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:9, padding:"10px 20px", color:T.muted, cursor:"pointer", fontSize:13 }}>ログアウト</button>
+          <button onClick={() => { if (confirm("ログアウトしますか？")) doLogout(); }} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:9, padding:"10px 20px", color:T.muted, cursor:"pointer", fontSize:13 }}>ログアウト</button>
         </div>
       </div>
     );
@@ -1031,7 +1044,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
             {tab==="settings" && <>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12, gap:8 }}>
                 <div style={{ fontSize:11, color:T.muted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{session.user.email}</div>
-                <button onClick={() => { if (confirm("ログアウトしますか？")) supabase.auth.signOut(); }} style={{ fontSize:11, color:T.muted, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"5px 10px", cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>ログアウト</button>
+                <button onClick={() => { if (confirm("ログアウトしますか？")) doLogout(); }} style={{ fontSize:11, color:T.muted, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"5px 10px", cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>ログアウト</button>
               </div>
               <div style={{ display:"flex", gap:4, marginBottom:16, flexWrap:"wrap" }}>
                 {[["salon","サロン"],["theme","テーマ"],["menus","メニュー"],["payments","決済"],["templates","テンプレ"],["members","メンバー"],["backup","バックアップ"]].map(([key,label]) => (

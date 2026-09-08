@@ -37,6 +37,3 @@ export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY,
   { auth: { storage: dynamicStorage, persistSession: true, autoRefreshToken: true } }
 );
-
-// 一時デバッグ用（後で削除）
-if (typeof window !== "undefined") window.__sn_supabase = supabase;
