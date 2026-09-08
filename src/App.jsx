@@ -580,7 +580,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     setShowFeedbackList(true);
   };
   return (
-    <div style={{ minHeight:"100vh", fontFamily:"'Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif", background:T.bg, color:T.text }}>
+    <div style={{ minHeight:"100vh", fontFamily:"'Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif", background:T.bg, color:T.text, paddingTop: showBackupAlert ? 60 : 0 }}>
       <div style={{ display:"flex", minHeight:"100vh", maxWidth:1100, margin:"0 auto" }}>
 
         {/* PC Sidebar */}
