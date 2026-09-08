@@ -222,7 +222,8 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [voiceInput, setVoiceInput] = useState(false);
   const [micActive,  setMicActive]  = useState(null);
   const micRecRef = useRef(null);
-  const [salonInfo, setSalonInfo] = useState({ name:"", genre:"" });
+  const [salonInfo, setSalonInfo] = useState({ name:"", genre:"", address:"", invoiceNumber:"" });
+  const [receiptKarte, setReceiptKarte] = useState(null);
   const [showBackupAlert, setShowBackupAlert] = useState(false);
   const T = THEMES[themeKey] || THEMES.sakura;
 
@@ -303,7 +304,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
       if (data.templates) setTemplates(data.templates);
       if (data.payments) setPayments(data.payments);
       if (data.theme) { setThemeKey(data.theme); LS.set("sn4_theme", data.theme); }
-      if (data.salon_name !== undefined) setSalonInfo({ name: data.salon_name || "", genre: data.genre || "" });
+      if (data.salon_name !== undefined) setSalonInfo({ name: data.salon_name || "", genre: data.genre || "", address: data.salon_address || "", invoiceNumber: data.invoice_number || "" });
       if (data.voice_input_enabled !== undefined) setVoiceInput(!!data.voice_input_enabled);
     }
   };
@@ -738,6 +739,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                                 {k.photo && <button onClick={e => { e.stopPropagation(); setLightbox(k.photo); }} style={{ marginTop:4, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"3px 9px", fontSize:11, color:T.sub, cursor:"pointer" }}>写真を見る</button>}
                               </div>
                               <div style={{ display:"flex", gap:5, flexShrink:0 }} onClick={e=>e.stopPropagation()}>
+                                <Btn small color={T.sub} onClick={() => setReceiptKarte(k)}>領収書</Btn>
                                 <Btn small color={T.sub} onClick={() => openEditKarte(k)}>編集</Btn>
                                 <Btn small color={T.danger} onClick={() => deleteKarte(k.id)}>削除</Btn>
                               </div>
@@ -814,6 +816,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                             {k.photo && <button onClick={() => setLightbox(k.photo)} style={{ marginTop:6, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"4px 10px", fontSize:11, color:T.sub, cursor:"pointer" }}>写真を見る</button>}
                           </div>
                           <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+                            <Btn small color={T.sub} onClick={() => setReceiptKarte(k)}>領収書</Btn>
                             <Btn small color={T.sub} onClick={() => openEditKarte(k)}>編集</Btn>
                             <Btn small color={T.danger} onClick={() => deleteKarte(k.id)}>削除</Btn>
                           </div>
@@ -1055,8 +1058,10 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                 <Card>
                   <div style={{ fontSize:15, fontFamily:"'Cormorant Garamond',serif", color:T.accent, marginBottom:14 }}>サロン情報</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-                    <div><Lbl t="サロン名" /><input defaultValue={salonInfo.name} onBlur={async e => { const s={...salonInfo,name:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: e.target.value, genre: salonInfo.genre }); }} placeholder="Eclael nail studio" style={base} /></div>
-                    <div><Lbl t="ジャンル（複数可）" /><input defaultValue={salonInfo.genre} onBlur={async e => { const s={...salonInfo,genre:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: salonInfo.name, genre: e.target.value }); }} placeholder="ネイル・エステ" style={base} /></div>
+                    <div><Lbl t="サロン名" /><input defaultValue={salonInfo.name} onBlur={async e => { const s={...salonInfo,name:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="Eclael nail studio" style={base} /></div>
+                    <div><Lbl t="ジャンル（複数可）" /><input defaultValue={salonInfo.genre} onBlur={async e => { const s={...salonInfo,genre:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="ネイル・エステ" style={base} /></div>
+                    <div><Lbl t="住所（領収書に記載されます・任意）" /><input defaultValue={salonInfo.address} onBlur={async e => { const s={...salonInfo,address:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="北海道〇〇市〇〇1-2-3" style={base} /></div>
+                    <div><Lbl t="適格請求書発行事業者 登録番号（未登録なら空欄でOK）" /><input defaultValue={salonInfo.invoiceNumber} onBlur={async e => { const s={...salonInfo,invoiceNumber:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="T1234567890123" style={base} /></div>
                     <div style={{ fontSize:12, color:T.muted, lineHeight:1.7 }}>入力するとヘッダーに「by サロン名」と表示されます。</div>
                   </div>
                 </Card>
@@ -1434,6 +1439,40 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
           </div>
         </div>
       )}
+
+      {/* 領収書モーダル */}
+      {receiptKarte && (() => {
+        const rc = receiptKarte;
+        const rClient = getClient(rc.clientId);
+        const rMenu = rc.menuId && getMenu(rc.menuId);
+        const rPrice = parseInt(rc.price) || 0;
+        const rTax = Math.floor(rPrice - rPrice / 1.1);
+        return (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:250, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={e => { if (e.target===e.currentTarget) setReceiptKarte(null); }}>
+            <div id="receiptPrintArea" style={{ background:"#fff", borderRadius:12, width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto", padding:"26px 24px" }}>
+              <div className="no-print" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+                <span style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color:T.accent, letterSpacing:"0.1em" }}>領収書プレビュー</span>
+                <button onClick={() => setReceiptKarte(null)} style={{ background:"none", border:"none", fontSize:24, color:T.muted, cursor:"pointer", lineHeight:1 }}>×</button>
+              </div>
+              <div style={{ textAlign:"center", fontSize:20, fontWeight:"bold", letterSpacing:"0.3em", marginBottom:24, color:"#333" }}>領　収　書</div>
+              <div style={{ fontSize:13, textAlign:"right", marginBottom:18, color:"#333" }}>発行日: {rc.date}</div>
+              <div style={{ fontSize:16, borderBottom:"1px solid #333", paddingBottom:8, marginBottom:20, color:"#333" }}>{rClient?.name || "お客様"} 様</div>
+              <div style={{ fontSize:26, fontWeight:"bold", textAlign:"center", marginBottom:6, color:"#333" }}>¥{rPrice.toLocaleString()}‐</div>
+              <div style={{ fontSize:11, color:"#888", textAlign:"center", marginBottom:24 }}>（うち消費税等 ¥{rTax.toLocaleString()}）</div>
+              <div style={{ fontSize:13, marginBottom:6, color:"#333" }}><span style={{ color:"#888" }}>但し: </span>{rMenu ? rMenu.name : "施術"}代として</div>
+              <div style={{ fontSize:12, color:"#888", marginBottom:26 }}>上記正に領収いたしました。</div>
+              <div style={{ borderTop:"1px solid #ddd", paddingTop:14, fontSize:12, lineHeight:1.8, color:"#333" }}>
+                <div style={{ fontWeight:"bold" }}>{salonInfo.name || "—"}</div>
+                {salonInfo.address && <div>{salonInfo.address}</div>}
+                {salonInfo.invoiceNumber && <div>登録番号: {salonInfo.invoiceNumber}</div>}
+              </div>
+              <div className="no-print" style={{ marginTop:24 }}>
+                <Btn full onClick={() => window.print()}>この領収書を印刷する</Btn>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
