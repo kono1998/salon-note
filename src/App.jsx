@@ -386,8 +386,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     return phone;
   };
   const submitClient = async () => {
-    console.log("submitClient called", cf);
-    if (!cf.name.trim()) { console.log("name empty"); return; }
+    if (!cf.name.trim()) { alert("お名前は必須です"); return; }
     if (!cf.phone.trim()) { alert("電話番号は必須です"); return; }
     if (!editClientId && clients.length >= 10 && subStatus !== "active") {
       setShowClientModal(false);
@@ -395,15 +394,14 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
       return;
     }
     const formatted = { ...cf, phone: formatPhone(cf.phone) };
+    let error;
     if (editClientId) {
-      const { error } = await supabase.from("clients").update({ name:formatted.name, phone:formatted.phone, email:formatted.email, birthday:formatted.birthday, allergy:formatted.allergy, notes:formatted.notes, memo:formatted.memo }).eq("id", editClientId);
-      console.log("update error:", error);
+      ({ error } = await supabase.from("clients").update({ name:formatted.name, phone:formatted.phone, email:formatted.email, birthday:formatted.birthday, allergy:formatted.allergy, notes:formatted.notes, memo:formatted.memo }).eq("id", editClientId));
     } else {
       const id = genId();
-      console.log("inserting with id:", id, "user_id:", session.user.id);
-      const { error } = await supabase.from("clients").insert({ id, user_id: session.user.id, ...formatted });
-      console.log("insert error:", error);
+      ({ error } = await supabase.from("clients").insert({ id, user_id: session.user.id, ...formatted }));
     }
+    if (error) { alert("保存に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
     await fetchClients();
     setShowClientModal(false);
   };
@@ -432,13 +430,16 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     setKarteDirty(false); setShowKarteModal(true);
   };
   const submitKarte = async () => {
-    if (!kf.clientId || !kf.date) return;
+    if (!kf.clientId) { alert("お客様を選択してください"); return; }
+    if (!kf.date) { alert("日付は必須です"); return; }
     const record = { user_id: session.user.id, client_id: kf.clientId, date: kf.date, menu_id: kf.menuId||null, price: kf.price, payment: kf.payment||null, treat_memo: kf.treatMemo, talk_memo: kf.talkMemo, photo: kf.photo||null };
+    let error;
     if (editKarteId) {
-      await supabase.from("kartes").update(record).eq("id", editKarteId);
+      ({ error } = await supabase.from("kartes").update(record).eq("id", editKarteId));
     } else {
-      await supabase.from("kartes").insert({ id: genId(), ...record });
+      ({ error } = await supabase.from("kartes").insert({ id: genId(), ...record }));
     }
+    if (error) { alert("保存に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
     await fetchKartes();
     setShowKarteModal(false);
   };
