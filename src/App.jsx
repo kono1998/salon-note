@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import PaymentPage from "./PaymentPage.jsx";
-import { supabase } from "./supabase.js";
+import { supabase, getRememberMe, setRememberMe } from "./supabase.js";
 
 const LS = {
   get: (k, fb) => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : fb; } catch { return fb; } },
@@ -42,7 +42,8 @@ function PaymentAddForm({ payments, savePayments, base, T, Btn }) {
   const [v, setV] = React.useState("");
   const add = () => {
     const trimmed = v.trim();
-    if (!trimmed || payments.includes(trimmed)) return;
+    if (!trimmed) { alert("支払い方法名を入力してください"); return; }
+    if (payments.includes(trimmed)) { alert("その支払い方法はすでに追加されています"); return; }
     savePayments([...payments, trimmed]);
     setV("");
   };
@@ -66,12 +67,14 @@ function AuthScreen() {
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [inviteToken] = useState(() => new URLSearchParams(window.location.search).get("invite") || "");
+  const [remember, setRemember] = useState(() => getRememberMe());
 
   const base = { width:"100%", padding:"12px 14px", border:`1px solid ${T.border}`, borderRadius:10, fontSize:15, background:T.bg, color:T.text, outline:"none", boxSizing:"border-box", fontFamily:"inherit", display:"block" };
 
   const handleLogin = async () => {
     if (!email || !password) { setError("メールとパスワードを入力してください"); return; }
     setLoading(true); setError("");
+    setRememberMe(remember);
     const { error: err } = await supabase.auth.signInWithPassword({ email, password });
     if (err) setError("メールアドレスまたはパスワードが間違っています");
     setLoading(false);
@@ -81,6 +84,7 @@ function AuthScreen() {
     if (!email || !password) { setError("メールとパスワードを入力してください"); return; }
     if (password.length < 6) { setError("パスワードは6文字以上にしてください"); return; }
     setLoading(true); setError("");
+    setRememberMe(remember);
     if (inviteToken) {
       const { data: inv } = await supabase.from("invitations").select("*").eq("token", inviteToken).eq("used", false).single();
       if (!inv) { setError("招待コードが無効か、すでに使用済みです"); setLoading(false); return; }
@@ -92,6 +96,8 @@ function AuthScreen() {
     await supabase.from("salon_members").insert({ user_id: data.user?.id, role, status });
     if (inviteToken) await supabase.from("invitations").update({ used: true }).eq("token", inviteToken);
     setLoading(false);
+    // ウェルカムメール送信（失敗しても登録自体は成功させる。設定未完了なら静かにスキップ）
+    fetch("/api/send-welcome-email", { method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify({ email }) }).catch(() => {});
     // 登録完了アラートを出してからそのままアプリへ
     alert("登録が完了しました！\nSALON NOTE へようこそ ");
     // セッションが自動で確立されているのでそのまま画面が切り替わる
@@ -137,6 +143,12 @@ function AuthScreen() {
             {mode !== "forgot" && (
               <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="パスワード（6文字以上）" type="password" style={base}
                 onKeyDown={e => { if (e.key==="Enter") mode==="login"?handleLogin():handleSignup(); }} />
+            )}
+            {mode !== "forgot" && (
+              <label style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color:T.muted, cursor:"pointer", userSelect:"none" }}>
+                <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ width:15, height:15, accentColor:T.accent, cursor:"pointer" }} />
+                ログイン状態を保持する
+              </label>
             )}
             {error && <div style={{ fontSize:12, color:T.danger, padding:"8px 12px", background:T.danger+"18", borderRadius:8 }}>{error}</div>}
             {msg   && <div style={{ fontSize:12, color:T.accent, padding:"8px 12px", background:T.accent+"18", borderRadius:8 }}>{msg}</div>}
@@ -455,13 +467,13 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   };
 
   const addMenu = () => {
-    if (!menuForm.name.trim()) return;
+    if (!menuForm.name.trim()) { alert("メニュー名を入力してください"); return; }
     if (editMenuId) { saveM(menus.map(m => m.id===editMenuId ? { ...m, ...menuForm } : m)); setEditMenuId(null); }
     else saveM([...menus, { id:genId(), name:menuForm.name, price:menuForm.price }]);
     setMenuForm({ name:"", price:"" });
   };
   const deleteMenu = id => saveM(menus.filter(m => m.id!==id));
-  const addTpl = () => { if (!tplForm.trim()) return; saveT([...templates, { id:genId(), text:tplForm }]); setTplForm(""); };
+  const addTpl = () => { if (!tplForm.trim()) { alert("テンプレート内容を入力してください"); return; } saveT([...templates, { id:genId(), text:tplForm }]); setTplForm(""); };
   const deleteTpl = id => saveT(templates.filter(t => t.id!==id));
 
   const doExport = () => {
@@ -614,10 +626,11 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [feedbackList, setFeedbackList] = useState([]);
   const [showFeedbackList, setShowFeedbackList] = useState(false);
   const submitFeedback = async () => {
-    if (!feedbackText.trim()) return;
+    if (!feedbackText.trim()) { alert("ご意見・ご要望を入力してください"); return; }
     setFeedbackSending(true);
     const { error } = await supabase.from("feedback").insert({ message: feedbackText.trim() });
     if (!error) { setFeedbackSent(true); setFeedbackText(""); setTimeout(() => setFeedbackSent(false), 3000); }
+    else { alert("送信に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); }
     setFeedbackSending(false);
   };
   const fetchFeedback = async () => {
