@@ -613,22 +613,6 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackList, setFeedbackList] = useState([]);
   const [showFeedbackList, setShowFeedbackList] = useState(false);
-  const [aiQ, setAiQ] = useState("");
-  const [aiA, setAiA] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const askAI = async () => {
-    if (!aiQ.trim() || aiLoading) return;
-    setAiLoading(true); setAiA("");
-    try {
-      const r = await fetch("/api/ai-consult", { method:"POST", headers:{ "content-type":"application/json", authorization:`Bearer ${session.access_token}` }, body: JSON.stringify({ question: aiQ.trim() }) });
-      const data = await r.json();
-      setAiA(data.answer || "回答を取得できませんでした。時間をおいて再度お試しください。");
-    } catch (e) {
-      setAiA("通信エラーが発生しました。時間をおいて再度お試しください。");
-    }
-    setAiLoading(false);
-  };
-
   const submitFeedback = async () => {
     if (!feedbackText.trim()) return;
     setFeedbackSending(true);
@@ -1189,32 +1173,6 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                 </Card>
               </>}
             </>}
-
-            {/* ═══ AIに相談（設定タブの下に常時表示） ═══ */}
-            {tab === "settings" && (
-              <div style={{ marginTop:24, marginBottom:8 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
-                  <div style={{ flex:1, height:1, background:T.border }} />
-                  <span style={{ fontSize:11, color:T.muted, letterSpacing:"0.1em", fontFamily:"'Cormorant Garamond',serif", whiteSpace:"nowrap" }}>AIに相談</span>
-                  <div style={{ flex:1, height:1, background:T.border }} />
-                </div>
-                <div style={{ background:T.accent+"0e", border:`1px solid ${T.accent}30`, borderRadius:14, padding:"18px 16px" }}>
-                  <div style={{ fontSize:13, color:T.accent, fontFamily:"'Cormorant Garamond',serif", marginBottom:4 }}>機能の使い方に迷ったらAIに相談</div>
-                  <div style={{ fontSize:11, color:T.muted, marginBottom:12, lineHeight:1.7 }}>SALON NOTEの使い方や機能について、気軽に質問できます。</div>
-                  <IMEArea
-                    value={aiQ}
-                    onChange={setAiQ}
-                    placeholder="例: 顧客データをまとめてコピーしたい、招待の使い方は？"
-                    rows={3}
-                    style={{ ...base, resize:"vertical", marginBottom:10 }}
-                  />
-                  <Btn full onClick={askAI} disabled={aiLoading||!aiQ.trim()}>{aiLoading?"考え中...":"質問する"}</Btn>
-                  {aiA && (
-                    <div style={{ fontSize:13, color:T.text, background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px", marginTop:12, lineHeight:1.8, whiteSpace:"pre-wrap" }}>{aiA}</div>
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* ═══ アンケート（設定タブの下に常時表示） ═══ */}
             {tab === "settings" && (
