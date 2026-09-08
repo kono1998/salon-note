@@ -204,12 +204,25 @@ export default function SalonApp() {
 
   useEffect(() => {
     if (!session) { setMyRole(null); setSubStatus(null); return; }
-    supabase.from("salon_members").select("role,status").eq("user_id", session.user.id).single()
-      .then(({ data }) => setMyRole(data));
+    let cancelled = false;
+    // 新規登録直後はsalon_membersの行がまだ書き込み中の場合があるため、
+    // 見つからない場合は少し待って数回リトライする（承認待ちの判定漏れ防止）
+    const fetchRole = (attempt = 0) => {
+      supabase.from("salon_members").select("role,status").eq("user_id", session.user.id).maybeSingle()
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          if (data) { setMyRole(data); return; }
+          if (error) console.error("salon_members fetch error:", error);
+          if (attempt < 4) { setTimeout(() => fetchRole(attempt + 1), 500); }
+        });
+    };
+    fetchRole();
     supabase.from("subscriptions").select("status").eq("user_id", session.user.id).maybeSingle()
       .then(({ data }) => {
+        if (cancelled) return;
         setSubStatus(data?.status || "inactive");
       });
+    return () => { cancelled = true; };
   }, [session]);
 
   if (authLoading) {
