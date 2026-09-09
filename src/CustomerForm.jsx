@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "./supabase";
 
 export default function CustomerForm() {
@@ -9,6 +9,25 @@ export default function CustomerForm() {
   const [loading, setLoading] = useState(false);
   // このフォームがどのサロン（オーナー）宛のものかをURLの ?salon=user_id から取得
   const [salonId] = useState(() => new URLSearchParams(window.location.search).get("salon") || "");
+  // サロン名はDB直参照ではなく、salon_nameとgenreだけを安全に公開するRPC
+  // (get_salon_public_info / SECURITY DEFINER) 経由で取得する。
+  // salon_settingsテーブル自体はオーナー本人しかSELECTできないので、
+  // 匿名のお客様がこのフォームからサロン名を読める唯一の安全な経路がこのRPC。
+  const [salonName, setSalonName] = useState("");
+
+  useEffect(() => {
+    if (!salonId) return;
+    supabase.rpc("get_salon_public_info", { p_user_id: salonId }).then(({ data, error }) => {
+      if (error) { console.error("salon info fetch error:", error); return; }
+      const name = Array.isArray(data) ? data[0]?.salon_name : data?.salon_name;
+      if (name) setSalonName(name);
+    });
+  }, [salonId]);
+
+  // サロン名が取得できるまで／取得できない場合は特定の実名を出さず汎用表現にフォールバック
+  const salonDisplay = salonName || "SALON NOTE";
+  const salonLabelWithAlias = salonName ? `${salonName}（以下「当サロン」）` : "当サロン";
+  const salonLabelShort = salonName || "当サロン";
 
   const submit = async () => {
     if (!agrees.service || !agrees.privacy || !agrees.cancel) { alert("全ての同意が必要です"); return; }
@@ -42,8 +61,8 @@ export default function CustomerForm() {
   if (done) return (
     <div style={s.wrap}>
       <div style={s.header}>
-        <div style={s.title}>✦ Eclael nail studio</div>
-        <div style={s.sub}>エクラエルネイルスタジオ</div>
+        <div style={s.title}>✦ {salonDisplay}</div>
+        <div style={s.sub}>ご来店ありがとうございます</div>
       </div>
       <div style={{ ...s.body, textAlign:"center", paddingTop:60 }}>
         <div style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:22, color:"#c8937a", marginBottom:12 }}>ご登録ありがとうございます</div>
@@ -56,7 +75,7 @@ export default function CustomerForm() {
   return (
     <div style={s.wrap}>
       <div style={s.header}>
-        <div style={s.title}>✦ Eclael nail studio</div>
+        <div style={s.title}>✦ {salonDisplay}</div>
         <div style={s.sub}>新規カルテ登録</div>
       </div>
       <div style={s.body}>
@@ -86,7 +105,7 @@ export default function CustomerForm() {
           <div style={s.box}>
             <div style={{ fontSize:14, fontWeight:"bold", color:"#3d2c26", marginBottom:8 }}>サービス利用規約</div>
             <div style={s.policy}>
-              第1条（適用）本規約は、Eclael nail studio（以下「当サロン」）が提供するネイルサービスの利用に関する条件を定めるものです。{"\n\n"}
+              第1条（適用）本規約は、{salonLabelWithAlias}が提供するネイルサービスの利用に関する条件を定めるものです。{"\n\n"}
               第2条（サービス内容）当サロンは、ネイルケア・ネイルアート等のサービスを提供します。施術内容は予約時にご確認いただいた内容に基づきます。{"\n\n"}
               第3条（健康状態）爪や皮膚に異常がある場合、施術をお断りする場合があります。施術前に必ずスタッフにお申し出ください。{"\n\n"}
               第4条（免責事項）施術後のトラブルについて、当サロンの過失によるものを除き、責任を負いかねます。アレルギー等の事前申告をお願いします。
@@ -100,7 +119,7 @@ export default function CustomerForm() {
           <div style={s.box}>
             <div style={{ fontSize:14, fontWeight:"bold", color:"#3d2c26", marginBottom:8 }}>プライバシーポリシー</div>
             <div style={s.policy}>
-              Eclael nail studioは、お客様の個人情報を以下の目的で使用します。{"\n\n"}
+              {salonLabelShort}は、お客様の個人情報を以下の目的で使用します。{"\n\n"}
               ・予約管理およびサービス提供のため{"\n"}
               ・施術履歴の管理のため{"\n"}
               ・ご連絡・ご案内のため{"\n\n"}

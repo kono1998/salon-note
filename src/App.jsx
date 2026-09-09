@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useContext, createContext } from "react";
 import PaymentPage from "./PaymentPage.jsx";
 import { supabase, getRememberMe, setRememberMe } from "./supabase.js";
 
@@ -28,6 +28,63 @@ const THEMES = {
   ivory:    { name:"アイボリー", bg:"#f9f6f0", card:"#fffef9", border:"#e8e0d0", accent:"#8f7a5a", sub:"#7a6a50", text:"#2c2416", muted:"#a09070", danger:"#b07060" },
   sage:     { name:"セージ",    bg:"#f4f7f4", card:"#ffffff", border:"#dde8dd", accent:"#5a8a5a", sub:"#4a7a4a", text:"#1e2e1e", muted:"#70906e", danger:"#a06060" },
   charcoal: { name:"ネイビー",   bg:"#0f1923", card:"#172030", border:"#ffffff33", accent:"#c8a84b", sub:"#c0b080", text:"#ffffff", muted:"#ffffffaa", danger:"#e07070" },
+};
+
+// ── 画面共通のUIパーツ ──────────────────────────────────────────
+// Lbl/Btn/Card/SvgIcon/PieChart は以前MainApp関数の中で定義されていたが、
+// それだとMainAppが再レンダーされるたび（= 例えばテキスト入力のたびに）に
+// 「新しい別のコンポーネント」として扱われ、React がその中身（フォーム欄を含む）
+// を一度アンマウントしてから作り直してしまい、入力中のフォーカスが外れる
+// （＝スマホのキーボードが閉じる）不具合の原因になっていた。
+// ファイルのトップレベル（モジュールスコープ）に定義することで、
+// 常に同じコンポーネントとして扱われるようにする。
+// テーマ色（T）はpropsで毎回渡す代わりにContext経由で受け取る。
+const ThemeContext = createContext(THEMES.sakura);
+
+const Lbl = ({ t }) => {
+  const T = useContext(ThemeContext);
+  return <div style={{ fontSize:11, color:T.sub, letterSpacing:"0.1em", marginBottom:5, fontFamily:"'Cormorant Garamond',serif" }}>{t}</div>;
+};
+const Btn = ({ onClick, children, color, small, full, disabled }) => {
+  const T = useContext(ThemeContext);
+  return (
+    <button onClick={onClick} disabled={disabled} style={{ background:disabled?T.muted:(color||T.accent), color:"#fff", border:"none", borderRadius:9, padding:small?"7px 13px":"12px 20px", cursor:disabled?"default":"pointer", fontSize:small?12:14, fontFamily:"'Cormorant Garamond',serif", letterSpacing:"0.06em", whiteSpace:"nowrap", flexShrink:0, width:full?"100%":undefined }}>{children}</button>
+  );
+};
+const Card = ({ children, style, onClick }) => {
+  const T = useContext(ThemeContext);
+  return (
+    <div onClick={onClick} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:13, padding:"14px 16px", marginBottom:10, boxShadow:"0 1px 4px rgba(0,0,0,0.06)", cursor:onClick?"pointer":"default", ...style }}>{children}</div>
+  );
+};
+const SvgIcon = ({ type, color }) => {
+  const s = { width:20, height:20, display:"inline-block", flexShrink:0, verticalAlign:"middle" };
+  if (type==="clients")  return <svg style={s} viewBox="0 0 22 22" fill="none"><circle cx="8" cy="7" r="3" fill={color}/><path d="M2 18c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke={color} strokeWidth="1.5" strokeLinecap="round" fill="none"/><circle cx="15" cy="7" r="2.5" fill={color} opacity="0.5"/><path d="M19 18c0-2.8-1.8-5.1-4-5.8" stroke={color} strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.5"/></svg>;
+  if (type==="calendar") return <svg style={s} viewBox="0 0 22 22" fill="none"><rect x="2" y="4" width="18" height="16" rx="3" stroke={color} strokeWidth="1.5" fill="none"/><path d="M7 2v4M15 2v4M2 9h18" stroke={color} strokeWidth="1.5" strokeLinecap="round"/><circle cx="7" cy="14" r="1.2" fill={color}/><circle cx="11" cy="14" r="1.2" fill={color}/><circle cx="15" cy="14" r="1.2" fill={color}/></svg>;
+  if (type==="pending")  return <svg style={s} viewBox="0 0 22 22" fill="none"><path d="M3 4h16l-2 9H5L3 4z" stroke={color} strokeWidth="1.5" strokeLinejoin="round" fill="none"/><path d="M3 4H1M5 13l-1 4h14l-1-4" stroke={color} strokeWidth="1.5" strokeLinecap="round"/><circle cx="8" cy="20" r="1.2" fill={color}/><circle cx="14" cy="20" r="1.2" fill={color}/><circle cx="9" cy="8" r="0.8" fill={color}/><circle cx="13" cy="8" r="0.8" fill={color}/><path d="M9 10.5h4" stroke={color} strokeWidth="1.2" strokeLinecap="round"/></svg>;
+  if (type==="cms")      return <svg style={s} viewBox="0 0 22 22" fill="none"><rect x="3" y="2" width="14" height="18" rx="2" stroke={color} strokeWidth="1.5" fill="none"/><path d="M7 7h8M7 11h8M7 15h5" stroke={color} strokeWidth="1.5" strokeLinecap="round"/><path d="M17 14l4 4-1.5 1.5L15.5 15.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+  if (type==="graph")    return <svg style={s} viewBox="0 0 22 22" fill="none"><path d="M2 20h18" stroke={color} strokeWidth="1.5" strokeLinecap="round"/><rect x="4" y="12" width="3" height="8" rx="1" fill={color} opacity="0.5"/><rect x="9.5" y="7" width="3" height="13" rx="1" fill={color}/><rect x="15" y="4" width="3" height="16" rx="1" fill={color} opacity="0.7"/></svg>;
+  if (type==="settings") return <svg style={s} viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="3" stroke={color} strokeWidth="1.5" fill="none"/><path d="M11 2v2M11 18v2M2 11h2M18 11h2M4.9 4.9l1.4 1.4M15.7 15.7l1.4 1.4M4.9 17.1l1.4-1.4M15.7 6.3l1.4-1.4" stroke={color} strokeWidth="1.5" strokeLinecap="round"/></svg>;
+  return null;
+};
+const PIE_COLORS = ["#c8937a","#d4b08a","#a0897a","#7a6a5a","#b09a92","#e8c8a8","#8a7060","#c0a080"];
+const PieChart = ({ data, size=120 }) => {
+  if (!data.length) return null;
+  const cx = size/2, pcy = size/2, r = size/2 - 6, ir = r * 0.55;
+  if (data.length === 1) return <svg width={size} height={size} style={{ display:"block" }}><circle cx={cx} cy={pcy} r={r} fill={PIE_COLORS[0]} /><circle cx={cx} cy={pcy} r={ir} fill="white" opacity="0.85" /></svg>;
+  let cumAngle = -Math.PI/2;
+  return (
+    <svg width={size} height={size} style={{ display:"block" }}>
+      {data.map((d,i) => {
+        const startAngle = cumAngle; const sweep = Math.max(d.pct * 2 * Math.PI, 0.001); cumAngle += sweep;
+        if (d.pct < 0.005) return null;
+        const x1=cx+r*Math.cos(startAngle), y1=pcy+r*Math.sin(startAngle), x2=cx+r*Math.cos(cumAngle), y2=pcy+r*Math.sin(cumAngle);
+        const ix1=cx+ir*Math.cos(cumAngle), iy1=pcy+ir*Math.sin(cumAngle), ix2=cx+ir*Math.cos(startAngle), iy2=pcy+ir*Math.sin(startAngle);
+        const largeArc = sweep > Math.PI ? 1 : 0;
+        return <path key={i} d={`M${x1},${y1} A${r},${r},0,${largeArc},1,${x2},${y2} L${ix1},${iy1} A${ir},${ir},0,${largeArc},0,${ix2},${iy2} Z`} fill={PIE_COLORS[i%PIE_COLORS.length]} stroke="white" strokeWidth="1.5" />;
+      })}
+    </svg>
+  );
 };
 
 function useIMEInput(extVal, onChange) {
@@ -582,37 +639,10 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     const total = Object.values(map).reduce((s,v)=>s+v,0);
     return Object.entries(map).map(([name,amt]) => ({ name, amt, pct: total>0 ? amt/total : 0 })).sort((a,b)=>b.amt-a.amt);
   };
-  const PIE_COLORS = ["#c8937a","#d4b08a","#a0897a","#7a6a5a","#b09a92","#e8c8a8","#8a7060","#c0a080"];
-  const PieChart = ({ data, size=120 }) => {
-    if (!data.length) return null;
-    const cx = size/2, pcy = size/2, r = size/2 - 6, ir = r * 0.55;
-    if (data.length === 1) return <svg width={size} height={size} style={{ display:"block" }}><circle cx={cx} cy={pcy} r={r} fill={PIE_COLORS[0]} /><circle cx={cx} cy={pcy} r={ir} fill="white" opacity="0.85" /></svg>;
-    let cumAngle = -Math.PI/2;
-    return (
-      <svg width={size} height={size} style={{ display:"block" }}>
-        {data.map((d,i) => {
-          const startAngle = cumAngle; const sweep = Math.max(d.pct * 2 * Math.PI, 0.001); cumAngle += sweep;
-          if (d.pct < 0.005) return null;
-          const x1=cx+r*Math.cos(startAngle), y1=pcy+r*Math.sin(startAngle), x2=cx+r*Math.cos(cumAngle), y2=pcy+r*Math.sin(cumAngle);
-          const ix1=cx+ir*Math.cos(cumAngle), iy1=pcy+ir*Math.sin(cumAngle), ix2=cx+ir*Math.cos(startAngle), iy2=pcy+ir*Math.sin(startAngle);
-          const largeArc = sweep > Math.PI ? 1 : 0;
-          return <path key={i} d={`M${x1},${y1} A${r},${r},0,${largeArc},1,${x2},${y2} L${ix1},${iy1} A${ir},${ir},0,${largeArc},0,${ix2},${iy2} Z`} fill={PIE_COLORS[i%PIE_COLORS.length]} stroke="white" strokeWidth="1.5" />;
-        })}
-      </svg>
-    );
-  };
-
   const filteredClients = clients.filter(c => c.name.includes(clientSearch) || (c.phone||"").includes(clientSearch));
   const pickerClients   = clients.filter(c => c.name.includes(pickerQ) || (c.phone||"").includes(pickerQ));
 
   const base = { width:"100%", padding:"10px 12px", border:`1px solid ${T.border}`, borderRadius:9, fontSize:14, background:T.bg, color:T.text, outline:"none", boxSizing:"border-box", fontFamily:"inherit", display:"block" };
-  const Lbl  = ({ t }) => <div style={{ fontSize:11, color:T.sub, letterSpacing:"0.1em", marginBottom:5, fontFamily:"'Cormorant Garamond',serif" }}>{t}</div>;
-  const Btn  = ({ onClick, children, color, small, full, disabled }) => (
-    <button onClick={onClick} disabled={disabled} style={{ background:disabled?T.muted:(color||T.accent), color:"#fff", border:"none", borderRadius:9, padding:small?"7px 13px":"12px 20px", cursor:disabled?"default":"pointer", fontSize:small?12:14, fontFamily:"'Cormorant Garamond',serif", letterSpacing:"0.06em", whiteSpace:"nowrap", flexShrink:0, width:full?"100%":undefined }}>{children}</button>
-  );
-  const Card = ({ children, style, onClick }) => (
-    <div onClick={onClick} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:13, padding:"14px 16px", marginBottom:10, boxShadow:"0 1px 4px rgba(0,0,0,0.06)", cursor:onClick?"pointer":"default", ...style }}>{children}</div>
-  );
   const startVoiceInput = (field, onResult) => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert("お使いのブラウザは音声入力に対応していません（Chromeでお試しください）"); return; }
@@ -629,17 +659,6 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const MicBtn = ({ field, onResult }) => !voiceInput ? null : (
     <button type="button" onClick={() => startVoiceInput(field, onResult)} style={{ fontSize:11, color:micActive===field?"#fff":T.accent, background:micActive===field?"#d06050":"none", border:`1px solid ${micActive===field?"#d06050":T.accent}`, borderRadius:14, padding:"2px 10px", cursor:"pointer", flexShrink:0 }}>{micActive===field?"● 録音中…（タップで停止）":"● 音声入力"}</button>
   );
-
-  const SvgIcon = ({ type, color }) => {
-    const s = { width:20, height:20, display:"inline-block", flexShrink:0, verticalAlign:"middle" };
-    if (type==="clients")  return <svg style={s} viewBox="0 0 22 22" fill="none"><circle cx="8" cy="7" r="3" fill={color}/><path d="M2 18c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke={color} strokeWidth="1.5" strokeLinecap="round" fill="none"/><circle cx="15" cy="7" r="2.5" fill={color} opacity="0.5"/><path d="M19 18c0-2.8-1.8-5.1-4-5.8" stroke={color} strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.5"/></svg>;
-    if (type==="calendar") return <svg style={s} viewBox="0 0 22 22" fill="none"><rect x="2" y="4" width="18" height="16" rx="3" stroke={color} strokeWidth="1.5" fill="none"/><path d="M7 2v4M15 2v4M2 9h18" stroke={color} strokeWidth="1.5" strokeLinecap="round"/><circle cx="7" cy="14" r="1.2" fill={color}/><circle cx="11" cy="14" r="1.2" fill={color}/><circle cx="15" cy="14" r="1.2" fill={color}/></svg>;
-    if (type==="pending")  return <svg style={s} viewBox="0 0 22 22" fill="none"><path d="M3 4h16l-2 9H5L3 4z" stroke={color} strokeWidth="1.5" strokeLinejoin="round" fill="none"/><path d="M3 4H1M5 13l-1 4h14l-1-4" stroke={color} strokeWidth="1.5" strokeLinecap="round"/><circle cx="8" cy="20" r="1.2" fill={color}/><circle cx="14" cy="20" r="1.2" fill={color}/><circle cx="9" cy="8" r="0.8" fill={color}/><circle cx="13" cy="8" r="0.8" fill={color}/><path d="M9 10.5h4" stroke={color} strokeWidth="1.2" strokeLinecap="round"/></svg>;
-    if (type==="cms")      return <svg style={s} viewBox="0 0 22 22" fill="none"><rect x="3" y="2" width="14" height="18" rx="2" stroke={color} strokeWidth="1.5" fill="none"/><path d="M7 7h8M7 11h8M7 15h5" stroke={color} strokeWidth="1.5" strokeLinecap="round"/><path d="M17 14l4 4-1.5 1.5L15.5 15.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
-    if (type==="graph")    return <svg style={s} viewBox="0 0 22 22" fill="none"><path d="M2 20h18" stroke={color} strokeWidth="1.5" strokeLinecap="round"/><rect x="4" y="12" width="3" height="8" rx="1" fill={color} opacity="0.5"/><rect x="9.5" y="7" width="3" height="13" rx="1" fill={color}/><rect x="15" y="4" width="3" height="16" rx="1" fill={color} opacity="0.7"/></svg>;
-    if (type==="settings") return <svg style={s} viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="3" stroke={color} strokeWidth="1.5" fill="none"/><path d="M11 2v2M11 18v2M2 11h2M18 11h2M4.9 4.9l1.4 1.4M15.7 15.7l1.4 1.4M4.9 17.1l1.4-1.4M15.7 6.3l1.4-1.4" stroke={color} strokeWidth="1.5" strokeLinecap="round"/></svg>;
-    return null;
-  };
 
   const NAV = [
     { key:"clients",  label:"顧客",     shortLabel:"顧客" },
@@ -683,6 +702,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     setShowFeedbackList(true);
   };
   return (
+    <ThemeContext.Provider value={T}>
     <div style={{ minHeight:"100vh", fontFamily:"'Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif", background:T.bg, color:T.text, paddingTop: showBackupAlert ? 60 : 0 }}>
       <div style={{ display:"flex", minHeight:"100vh", maxWidth:1100, margin:"0 auto" }}>
 
@@ -1100,7 +1120,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                 <Card>
                   <div style={{ fontSize:15, fontFamily:"'Cormorant Garamond',serif", color:T.accent, marginBottom:14 }}>サロン情報</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-                    <div><Lbl t="サロン名" /><input defaultValue={salonInfo.name} onBlur={async e => { const s={...salonInfo,name:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="Eclael nail studio" style={base} /></div>
+                    <div><Lbl t="サロン名" /><input defaultValue={salonInfo.name} onBlur={async e => { const s={...salonInfo,name:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="〇〇ネイルサロン" style={base} /></div>
                     <div><Lbl t="ジャンル（複数可）" /><input defaultValue={salonInfo.genre} onBlur={async e => { const s={...salonInfo,genre:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="ネイル・エステ" style={base} /></div>
                     <div><Lbl t="住所（領収書に記載されます・任意）" /><input defaultValue={salonInfo.address} onBlur={async e => { const s={...salonInfo,address:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="北海道〇〇市〇〇1-2-3" style={base} /></div>
                     <div><Lbl t="適格請求書発行事業者 登録番号（未登録なら空欄でOK）" /><input defaultValue={salonInfo.invoiceNumber} onBlur={async e => { const s={...salonInfo,invoiceNumber:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="T1234567890123" style={base} /></div>
@@ -1490,5 +1510,6 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
         );
       })()}
     </div>
+    </ThemeContext.Provider>
   );
 }
