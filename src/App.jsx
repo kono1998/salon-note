@@ -358,6 +358,9 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const EMPTY_K = { clientId:"", date:todayStr(), menuId:"", price:"", treatMemo:"", talkMemo:"", photo:"" };
   const [cf, setCf] = useState(EMPTY_C);
   const [kf, setKf] = useState(EMPTY_K);
+  // カルテ写真: kf.photo にはSupabase Storageの保存パスを持たせ、
+  // 画面表示用の実URL（signed URL / 選択直後のローカルプレビュー）は別state で持つ
+  const [kfPhotoPreview, setKfPhotoPreview] = useState("");
 
   const [clientSearch, setClientSearch] = useState("");
   const [detailId,     setDetailId]     = useState(null);
@@ -523,6 +526,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     const preC = preId ? getClient(preId) : null;
     setPickerQ(preC ? preC.name : ""); setPickerOpen(false);
     setKf({ clientId:preId, date:calSel, price:"", menuId:"", treatMemo:"", talkMemo:"", photo:"" });
+    setKfPhotoPreview("");
     setKarteDirty(false); setShowKarteModal(true);
   };
   const openEditKarte = k => {
@@ -530,6 +534,17 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     const c = getClient(k.clientId);
     setPickerQ(c ? c.name : ""); setPickerOpen(false);
     setKf({ clientId:k.clientId, date:k.date, menuId:k.menuId||"", price:k.price, payment:k.payment||"", treatMemo:k.treatMemo, talkMemo:k.talkMemo, photo:k.photo||"" });
+    setKfPhotoPreview("");
+    if (k.photo) {
+      if (k.photo.startsWith("data:")) {
+        // 移行前の古いカルテ（base64がそのまま入っている）はそのまま表示
+        setKfPhotoPreview(k.photo);
+      } else {
+        supabase.storage.from("karte-photos").createSignedUrl(k.photo, 3600).then(({ data }) => {
+          if (data) setKfPhotoPreview(data.signedUrl);
+        });
+      }
+    }
     setKarteDirty(false); setShowKarteModal(true);
   };
   const submitKarte = async () => {
@@ -552,9 +567,51 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     if (error) { alert("削除に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
     await fetchKartes();
   };
-  const handlePhoto = e => {
+  // 画像を最大1280pxにリサイズし、JPEG(quality 0.75)に圧縮してBlobで返す
+  const compressImage = (file, maxDim = 1280, quality = 0.75) => new Promise((resolve, reject) => {
+    const objUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+        else { width = Math.round(width * maxDim / height); height = maxDim; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      canvas.toBlob(blob => {
+        URL.revokeObjectURL(objUrl);
+        blob ? resolve(blob) : reject(new Error("画像の圧縮に失敗しました"));
+      }, "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(objUrl); reject(new Error("画像の読み込みに失敗しました")); };
+    img.src = objUrl;
+  });
+
+  const handlePhoto = async e => {
     const f = e.target.files[0]; if (!f) return;
-    const r = new FileReader(); r.onload = ev => setKf(p => ({ ...p, photo:ev.target.result })); r.readAsDataURL(f);
+    try {
+      const compressed = await compressImage(f);
+      const path = `${session.user.id}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.jpg`;
+      const { error } = await supabase.storage.from("karte-photos").upload(path, compressed, { contentType:"image/jpeg", upsert:false });
+      if (error) { alert("写真のアップロードに失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
+      setKf(p => ({ ...p, photo:path }));
+      setKfPhotoPreview(URL.createObjectURL(compressed));
+    } catch (err) {
+      alert("写真の処理に失敗しました。\n" + (err.message||""));
+    } finally {
+      e.target.value = "";
+    }
+  };
+
+  // カルテ写真を開く（新形式=Storageパスはsigned URLを発行、旧形式=base64はそのまま表示）
+  const openPhoto = async path => {
+    if (!path) return;
+    if (path.startsWith("data:")) { setLightbox(path); return; }
+    const { data, error } = await supabase.storage.from("karte-photos").createSignedUrl(path, 3600);
+    if (error) { alert("写真の読み込みに失敗しました"); return; }
+    setLightbox(data.signedUrl);
   };
 
   const addMenu = () => {
@@ -798,7 +855,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                                 <div style={{ fontSize:13, fontWeight:"bold" }}>{k.date} — ¥{k.price||"−"}{k.payment ? <span style={{ marginLeft:6, fontSize:11, background:T.accent+"22", color:T.accent, borderRadius:20, padding:"1px 7px" }}>{k.payment}</span> : null}</div>
                                 {k.menuId && getMenu(k.menuId) && <div style={{ fontSize:12, color:T.accent, marginTop:1 }}>{getMenu(k.menuId).name}</div>}
                                 {k.treatMemo && <div style={{ fontSize:12, color:T.muted, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>施術: {k.treatMemo}</div>}
-                                {k.photo && <button onClick={e => { e.stopPropagation(); setLightbox(k.photo); }} style={{ marginTop:4, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"3px 9px", fontSize:11, color:T.sub, cursor:"pointer" }}>写真を見る</button>}
+                                {k.photo && <button onClick={e => { e.stopPropagation(); openPhoto(k.photo); }} style={{ marginTop:4, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"3px 9px", fontSize:11, color:T.sub, cursor:"pointer" }}>写真を見る</button>}
                               </div>
                               <div style={{ display:"flex", gap:5, flexShrink:0 }} onClick={e=>e.stopPropagation()}>
                                 <Btn small color={T.sub} onClick={() => setReceiptKarte(k)}>領収書</Btn>
@@ -875,7 +932,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                             <div style={{ fontSize:13, color:T.muted }}>¥{k.price||"−"}{k.payment ? <span style={{ marginLeft:8, fontSize:11, background:T.accent+"22", color:T.accent, borderRadius:20, padding:"1px 8px" }}>{k.payment}</span> : null}</div>
                             {k.treatMemo && <div style={{ fontSize:12, color:T.muted, marginTop:4 }}>施術: {k.treatMemo}</div>}
                             {k.talkMemo  && <div style={{ fontSize:12, color:T.muted }}>会話: {k.talkMemo}</div>}
-                            {k.photo && <button onClick={() => setLightbox(k.photo)} style={{ marginTop:6, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"4px 10px", fontSize:11, color:T.sub, cursor:"pointer" }}>写真を見る</button>}
+                            {k.photo && <button onClick={() => openPhoto(k.photo)} style={{ marginTop:6, background:"none", border:`1px solid ${T.border}`, borderRadius:7, padding:"4px 10px", fontSize:11, color:T.sub, cursor:"pointer" }}>写真を見る</button>}
                           </div>
                           <div style={{ display:"flex", gap:5, flexShrink:0 }}>
                             <Btn small color={T.sub} onClick={() => setReceiptKarte(k)}>領収書</Btn>
@@ -1463,11 +1520,11 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
               </div>
               <div>
                 <Lbl t="写真（1枚）" />
-                {kf.photo && <img src={kf.photo} alt="" style={{ width:"100%", borderRadius:8, marginBottom:8, display:"block", objectFit:"contain" }} />}
+                {kfPhotoPreview && <img src={kfPhotoPreview} alt="" style={{ width:"100%", borderRadius:8, marginBottom:8, display:"block", objectFit:"contain" }} />}
                 <div style={{ display:"flex", gap:8 }}>
                   <input type="file" accept="image/*" ref={photoRef} style={{ display:"none" }} onChange={handlePhoto} />
                   <Btn small color={T.sub} onClick={() => photoRef.current.click()}>写真を選ぶ</Btn>
-                  {kf.photo && <Btn small color={T.danger} onClick={() => setKf(f=>({...f,photo:""}))}>削除</Btn>}
+                  {kf.photo && <Btn small color={T.danger} onClick={() => { setKf(f=>({...f,photo:""})); setKfPhotoPreview(""); }}>削除</Btn>}
                 </div>
               </div>
               <Btn full onClick={submitKarte} disabled={!kf.clientId||!kf.date}>{editKarteId?"更新する":"保存する"}</Btn>
