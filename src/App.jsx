@@ -379,7 +379,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [copiedId, setCopiedId] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [settingsSub, setSettingsSub] = useState("theme");
-  const [menuForm, setMenuForm] = useState({ name:"", price:"" });
+  const [menuForm, setMenuForm] = useState({ name:"", price:"", duration:"" });
   const [editMenuId, setEditMenuId] = useState(null);
   const [tplForm, setTplForm] = useState("");
 
@@ -661,7 +661,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const addMenu = () => {
     if (!menuForm.name.trim()) { alert("メニュー名を入力してください"); return; }
     if (editMenuId) { saveM(menus.map(m => m.id===editMenuId ? { ...m, ...menuForm } : m)); setEditMenuId(null); }
-    else saveM([...menus, { id:genId(), name:menuForm.name, price:menuForm.price }]);
+    else saveM([...menus, { id:genId(), name:menuForm.name, price:menuForm.price, duration:menuForm.duration }]);
     setMenuForm({ name:"", price:"" });
   };
   const deleteMenu = id => { if (!confirm("このメニューを削除しますか？")) return; saveM(menus.filter(m => m.id!==id)); };
@@ -1297,16 +1297,18 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   <div style={{ fontSize:15, fontFamily:"'Cormorant Garamond',serif", color:T.accent, marginBottom:14 }}>メニュー管理</div>
                   <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
                     <IMEInput value={menuForm.name} onChange={v=>setMenuForm(f=>({...f,name:v}))} placeholder="メニュー名（例: カット）" style={base} />
-                    <input type="number" defaultValue={menuForm.price} key={editMenuId||"new"} onBlur={e=>setMenuForm(f=>({...f,price:e.target.value}))} placeholder="金額（税込・円）" style={base} />
+                    <input type="number" defaultValue={menuForm.price} key={"price"+(editMenuId||"new")} onBlur={e=>setMenuForm(f=>({...f,price:e.target.value}))} placeholder="金額（税込・円）" style={base} />
+                    <input type="number" defaultValue={menuForm.duration} key={"duration"+(editMenuId||"new")} onBlur={e=>setMenuForm(f=>({...f,duration:e.target.value}))} placeholder="施術時間（分）例: 90" style={base} />
+                    <div style={{ fontSize:12, color:T.muted, marginTop:-4 }}>※予約フォームの空き時間計算に使います（未入力の場合は60分として計算）</div>
                     <Btn full onClick={addMenu}>{editMenuId ? "更新する" : "追加"}</Btn>
-                    {editMenuId && <Btn full color={T.sub} onClick={() => { setEditMenuId(null); setMenuForm({ name:"", price:"" }); }}>キャンセル</Btn>}
+                    {editMenuId && <Btn full color={T.sub} onClick={() => { setEditMenuId(null); setMenuForm({ name:"", price:"", duration:"" }); }}>キャンセル</Btn>}
                   </div>
                   {menus.length===0 && <div style={{ fontSize:13, color:T.muted, textAlign:"center", padding:"12px 0" }}>メニューがありません</div>}
                   {menus.map(m => (
                     <div key={m.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
-                      <div><span style={{ fontSize:14 }}>{m.name}</span>{m.price && <span style={{ fontSize:13, color:T.muted, marginLeft:8 }}>¥{parseInt(m.price).toLocaleString()}</span>}</div>
+                      <div><span style={{ fontSize:14 }}>{m.name}</span>{m.price && <span style={{ fontSize:13, color:T.muted, marginLeft:8 }}>¥{parseInt(m.price).toLocaleString()}</span>}{m.duration && <span style={{ fontSize:12, color:T.muted, marginLeft:8 }}>（{m.duration}分）</span>}</div>
                       <div style={{ display:"flex", gap:6 }}>
-                        <Btn small color={T.sub} onClick={() => { setEditMenuId(m.id); setMenuForm({ name:m.name, price:m.price }); }}>編集</Btn>
+                        <Btn small color={T.sub} onClick={() => { setEditMenuId(m.id); setMenuForm({ name:m.name, price:m.price, duration:m.duration||"" }); }}>編集</Btn>
                         <Btn small color={T.danger} onClick={() => deleteMenu(m.id)}>削除</Btn>
                       </div>
                     </div>
