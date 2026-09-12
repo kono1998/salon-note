@@ -34,12 +34,16 @@ export default function CustomerForm() {
     if (!form.name.trim()) { alert("お名前は必須です"); return; }
     if (!salonId) { alert("このリンクは無効です。サロンのQRコードから再度アクセスしてください。"); return; }
     setLoading(true);
-    const { error } = await supabase.from("pending_clients").insert([{
-      user_id: salonId,
-      name: form.name, phone: form.phone,
-      birthday: form.birthday, address: form.address, allergy: form.allergy,
-      agree_service: agrees.service, agree_privacy: agrees.privacy, agree_cancel: agrees.cancel,
-    }]);
+    // pending_clientsへの直接INSERTだと、匿名ユーザーはINSERT後にその行を
+    // 読み返す権限がなく（RLSでオーナーのみ閲覧可にしているため）PostgREST側で
+    // エラー扱いになってしまう。SECURITY DEFINER関数（submit_pending_client）
+    // 経由にすることで、読み返しなしに安全にINSERTだけ行う。
+    const { error } = await supabase.rpc("submit_pending_client", {
+      p_user_id: salonId,
+      p_name: form.name, p_phone: form.phone,
+      p_birthday: form.birthday, p_address: form.address, p_allergy: form.allergy,
+      p_agree_service: agrees.service, p_agree_privacy: agrees.privacy, p_agree_cancel: agrees.cancel,
+    });
     setLoading(false);
     if (error) { alert("送信に失敗しました。もう一度お試しください。"); return; }
     setDone(true);

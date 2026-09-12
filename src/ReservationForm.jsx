@@ -33,12 +33,16 @@ export default function ReservationForm() {
     if (!form.desired_date) { alert("ご希望日をお選びください"); return; }
     if (!salonId) { alert("このリンクは無効です。サロンのQRコードから再度アクセスしてください。"); return; }
     setLoading(true);
-    const { error } = await supabase.from("pending_reservations").insert([{
-      user_id: salonId,
-      name: form.name, phone: form.phone,
-      desired_date: form.desired_date, desired_time: form.desired_time,
-      menu_id: form.menu_id || null, memo: form.memo,
-    }]);
+    // pending_reservationsへの直接INSERTだと、匿名ユーザーはINSERT後にその行を
+    // 読み返す権限がなく（RLSでオーナーのみ閲覧可にしているため）PostgREST側で
+    // エラー扱いになってしまう。SECURITY DEFINER関数（submit_pending_reservation）
+    // 経由にすることで、読み返しなしに安全にINSERTだけ行う。
+    const { error } = await supabase.rpc("submit_pending_reservation", {
+      p_user_id: salonId,
+      p_name: form.name, p_phone: form.phone,
+      p_desired_date: form.desired_date, p_desired_time: form.desired_time,
+      p_menu_id: form.menu_id || null, p_memo: form.memo,
+    });
     setLoading(false);
     if (error) { alert("送信に失敗しました。もう一度お試しください。"); return; }
     setDone(true);
