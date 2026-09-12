@@ -137,11 +137,11 @@ export default function ReservationForm() {
     changeBtn: { flexShrink:0, padding:"8px 14px", background:"#fff", color:"#c8937a", border:"1px solid #c8937a", borderRadius:20, fontSize:12, cursor:"pointer", fontFamily:"inherit" },
     backLink: { display:"block", width:"100%", textAlign:"center", background:"none", border:"none", color:"#a0897a", fontSize:12, padding:"10px 0", cursor:"pointer", textDecoration:"underline", fontFamily:"inherit" },
     slotGridWrap: { overflowX:"auto", WebkitOverflowScrolling:"touch" },
-    slotGrid: { display:"grid", gridTemplateColumns:"46px repeat(7,minmax(40px,1fr))", minWidth:480 },
-    slotCornerCell: { borderBottom:"1px solid #ede6e2", background:"#fff" },
-    slotHeaderCell: { textAlign:"center", fontSize:11, padding:"6px 2px", fontWeight:600, borderBottom:"1px solid #ede6e2", background:"#fff", lineHeight:1.4 },
-    slotTimeCell: { fontSize:10, color:"#a0897a", padding:"7px 3px", textAlign:"center", borderBottom:"1px solid #f3ece8", background:"#fdf7f4", whiteSpace:"nowrap" },
-    slotCell: { textAlign:"center", padding:"7px 2px", borderBottom:"1px solid #f3ece8", border:"none", background:"#fff", fontSize:13 },
+    slotGrid: { display:"grid", gridTemplateColumns:"48px repeat(7,minmax(46px,1fr))", minWidth:520, borderTop:"1px solid #ddd0c8", borderLeft:"1px solid #ddd0c8" },
+    slotCornerCell: { borderRight:"1px solid #ddd0c8", borderBottom:"1px solid #ddd0c8", background:"#faf5f2" },
+    slotHeaderCell: { textAlign:"center", fontSize:12, padding:"8px 2px", fontWeight:700, borderRight:"1px solid #ddd0c8", borderBottom:"1px solid #ddd0c8", background:"#faf5f2", lineHeight:1.4 },
+    slotTimeCell: { fontSize:11, color:"#8a7468", fontWeight:600, padding:"11px 3px", textAlign:"center", borderRight:"1px solid #ddd0c8", borderBottom:"1px solid #ddd0c8", background:"#fdf7f4", whiteSpace:"nowrap" },
+    slotCell: { textAlign:"center", padding:"11px 2px", borderRight:"1px solid #ddd0c8", borderBottom:"1px solid #ddd0c8", borderTop:"none", borderLeft:"none", background:"#fff", fontSize:22, fontWeight:700, lineHeight:1, WebkitAppearance:"none", appearance:"none" },
   };
 
   if (done) return (
@@ -260,7 +260,7 @@ export default function ReservationForm() {
                             <button type="button" key={ci}
                               disabled={!bookable}
                               onClick={()=>setForm(f=>({ ...f, desired_date: toDateStr(d), desired_time: t }))}
-                              style={{ ...s.slotCell, color: bookable ? "#4c9a6a" : "#d8cec8", cursor: bookable ? "pointer" : "default" }}>
+                              style={{ ...s.slotCell, color: bookable ? "#3f9a5c" : "#b7aca4", cursor: bookable ? "pointer" : "default" }}>
                               {bookable ? "○" : "×"}
                             </button>
                           );

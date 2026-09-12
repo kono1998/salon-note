@@ -364,6 +364,9 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   // カルテ写真: kf.photo にはSupabase Storageの保存パスを持たせ、
   // 画面表示用の実URL（signed URL / 選択直後のローカルプレビュー）は別state で持つ
   const [kfPhotoPreview, setKfPhotoPreview] = useState("");
+  // 手動での予約追加（オーナー自身がカレンダーから直接予約を入れる用。営業時間外も入力可・確認あり）
+  const [showResvModal, setShowResvModal] = useState(false);
+  const [rf, setRf] = useState({ clientId:"", date:todayStr(), startTime:"", menuId:"", memo:"" });
 
   const [clientSearch, setClientSearch] = useState("");
   const [detailId,     setDetailId]     = useState(null);
@@ -612,6 +615,30 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     const { error } = await supabase.from("kartes").delete().eq("id", id);
     if (error) { alert("削除に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
     await fetchKartes();
+  };
+
+  // ── 予約を手動で追加（電話予約・営業時間外の特別対応など） ──────────
+  const isWithinBusinessHours = t => {
+    if (!t) return true;
+    const bs = salonInfo.businessStart || "10:00";
+    const ls = salonInfo.businessLastStart || "18:45";
+    return t >= bs && t <= ls;
+  };
+  const openNewReservation = () => {
+    setPickerQ(""); setPickerOpen(false);
+    setRf({ clientId:"", date:calSel, startTime:"", menuId:"", memo:"" });
+    setShowResvModal(true);
+  };
+  const submitReservation = async () => {
+    if (!rf.clientId) { alert("お客様を選択してください"); return; }
+    if (!rf.date) { alert("日付は必須です"); return; }
+    if (rf.startTime && !isWithinBusinessHours(rf.startTime)) {
+      if (!confirm(`営業時間（${salonInfo.businessStart}〜${salonInfo.businessLastStart}）外の時間ですが、よろしいですか？`)) return;
+    }
+    const { error } = await supabase.from("reservations").insert({ id: genId(), user_id: session.user.id, client_id: rf.clientId, date: rf.date, start_time: rf.startTime||null, menu_id: rf.menuId||null, memo: rf.memo||"", status:"confirmed" });
+    if (error) { alert("保存に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
+    await fetchReservations();
+    setShowResvModal(false);
   };
   // 画像を最大1280pxにリサイズし、JPEG(quality 0.75)に圧縮してBlobで返す
   const compressImage = (file, maxDim = 1280, quality = 0.75) => new Promise((resolve, reject) => {
@@ -986,21 +1013,23 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   {birthdayClientsThisMonth().map(c => <div key={c.id} style={{ fontSize:13, marginBottom:4 }}>{c.birthday.slice(5).replace("-","/")}　{c.name}</div>)}
                 </Card>
               )}
-              {byDateRes(calSel).length>0 && <>
-                <div style={{ margin:"14px 0 10px" }}>
-                  <span style={{ fontSize:13, color:"#5090c0", fontFamily:"'Cormorant Garamond',serif" }}>予約（{byDateRes(calSel).length}件）</span>
-                </div>
-                {byDateRes(calSel).map(r => {
-                  const c = getClient(r.clientId);
-                  return (
-                    <Card key={r.id} style={{ background:"#5090c012", border:"1px solid #5090c040" }}>
-                      <div style={{ fontSize:15, fontWeight:"bold" }}>{c?.name||"不明"}</div>
-                      <div style={{ fontSize:13, color:T.muted, marginTop:2 }}>{r.startTime||""}{r.menuId && getMenu(r.menuId) ? "　"+getMenu(r.menuId).name : ""}</div>
-                      {r.memo && <div style={{ fontSize:12, color:T.muted, marginTop:4 }}>{r.memo}</div>}
-                    </Card>
-                  );
-                })}
-              </>}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", margin:"14px 0 10px" }}>
+                <span style={{ fontSize:13, color:"#5090c0", fontFamily:"'Cormorant Garamond',serif" }}>予約（{byDateRes(calSel).length}件）</span>
+                <Btn small color="#5090c0" onClick={() => openNewReservation()}>＋ 予約を追加</Btn>
+              </div>
+              {byDateRes(calSel).length===0
+                ? <div style={{ textAlign:"center", color:T.muted, fontSize:12, padding:"2px 0 10px" }}>この日の予約はありません</div>
+                : byDateRes(calSel).map(r => {
+                    const c = getClient(r.clientId);
+                    return (
+                      <Card key={r.id} style={{ background:"#5090c012", border:"1px solid #5090c040" }}>
+                        <div style={{ fontSize:15, fontWeight:"bold" }}>{c?.name||"不明"}</div>
+                        <div style={{ fontSize:13, color:T.muted, marginTop:2 }}>{r.startTime||""}{r.menuId && getMenu(r.menuId) ? "　"+getMenu(r.menuId).name : ""}</div>
+                        {r.memo && <div style={{ fontSize:12, color:T.muted, marginTop:4 }}>{r.memo}</div>}
+                      </Card>
+                    );
+                  })
+              }
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", margin:"14px 0 10px" }}>
                 <span style={{ fontSize:13, color:T.sub, fontFamily:"'Cormorant Garamond',serif" }}>{calSel}（{byDate(calSel).length}件）</span>
                 <Btn small onClick={() => openNewKarte()}>＋ カルテ追加</Btn>
@@ -1596,6 +1625,55 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
               <div><Lbl t="その他注意事項" /><IMEArea value={cf.notes} onChange={v=>{ setCf(f=>({...f,notes:v})); setClientDirty(true); }} placeholder="例: 消毒エタノール注意" rows={2} style={{...base,resize:"vertical"}} /></div>
               <div><Lbl t="特徴メモ" /><IMEArea value={cf.memo} onChange={v=>{ setCf(f=>({...f,memo:v})); setClientDirty(true); }} placeholder="例: 犬2匹いる、旅行好き" rows={2} style={{...base,resize:"vertical"}} /></div>
               <Btn full onClick={submitClient}>{editClientId?"更新する":"保存する"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 予約モーダル（オーナーによる手動追加） */}
+      {showResvModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={e => { if (e.target===e.currentTarget) setShowResvModal(false); }}>
+          <div style={{ background:T.card, borderRadius:"18px 18px 0 0", width:"100%", maxWidth:520, maxHeight:"92vh", overflowY:"auto", padding:"22px 18px 44px" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+              <span style={{ fontFamily:"'Cormorant Garamond',serif", fontSize:18, color:"#5090c0", letterSpacing:"0.1em" }}>予約を追加</span>
+              <button onClick={() => setShowResvModal(false)} style={{ background:"none", border:"none", fontSize:24, color:T.muted, cursor:"pointer", lineHeight:1 }}>×</button>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:13 }}>
+              <div>
+                <Lbl t="お客様 *" />
+                <div style={{ position:"relative" }}>
+                  <IMEInput value={rf.clientId&&!pickerOpen?(getClient(rf.clientId)?.name||""):pickerQ} onChange={v => { setPickerQ(v); setPickerOpen(true); setRf(f=>({...f,clientId:""})); }} placeholder="名前で検索して選択..." style={base} />
+                  {!pickerOpen&&rf.clientId && <div style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", cursor:"pointer", color:T.muted, fontSize:18, lineHeight:1 }} onClick={() => { setPickerQ(""); setPickerOpen(true); setRf(f=>({...f,clientId:""})); }}>×</div>}
+                  {pickerOpen&&pickerClients.length>0 && (
+                    <div style={{ position:"absolute", top:"100%", left:0, right:0, background:T.card, border:`1px solid ${T.border}`, borderRadius:9, zIndex:300, maxHeight:160, overflowY:"auto", boxShadow:"0 6px 20px rgba(0,0,0,0.12)" }}>
+                      {pickerClients.map(c => (
+                        <div key={c.id} onMouseDown={() => { setRf(f=>({...f,clientId:c.id})); setPickerQ(""); setPickerOpen(false); }} style={{ padding:"11px 14px", cursor:"pointer", fontSize:14, borderBottom:`1px solid ${T.border}` }}>
+                          {c.name} <span style={{ color:T.muted, fontSize:12 }}>{c.phone}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div><Lbl t="日付 *" /><input type="date" value={rf.date} onChange={e=>setRf(f=>({...f,date:e.target.value}))} style={{ ...base, WebkitAppearance:"none", appearance:"none", maxWidth:"100%" }} /></div>
+              <div>
+                <Lbl t="時間" />
+                <input type="time" value={rf.startTime} onChange={e=>setRf(f=>({...f,startTime:e.target.value}))} style={base} />
+                <div style={{ fontSize:11, color:T.muted, marginTop:4 }}>営業時間（{salonInfo.businessStart}〜{salonInfo.businessLastStart}）の外の時間も入力できます。その場合は保存時に確認が表示されます。</div>
+              </div>
+              {menus.length>0 && (
+                <div>
+                  <Lbl t="メニューから選ぶ（任意）" />
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                    <button onClick={() => setRf(f=>({...f,menuId:""}))} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${T.border}`, background:!rf.menuId?"#5090c0":"none", color:!rf.menuId?"#fff":T.muted, cursor:"pointer", fontSize:12 }}>なし</button>
+                    {menus.map(m => (
+                      <button key={m.id} onClick={() => setRf(f=>({...f,menuId:m.id}))} style={{ padding:"6px 12px", borderRadius:20, border:`1px solid ${rf.menuId===m.id?"#5090c0":T.border}`, background:rf.menuId===m.id?"#5090c0":"none", color:rf.menuId===m.id?"#fff":T.text, cursor:"pointer", fontSize:12 }}>{m.name}{m.price?` ¥${parseInt(m.price).toLocaleString()}`:""}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div><Lbl t="メモ（任意）" /><IMEArea value={rf.memo} onChange={v=>setRf(f=>({...f,memo:v}))} placeholder="電話予約、常連さんなど" rows={2} style={{...base,resize:"vertical"}} /></div>
+              <Btn full color="#5090c0" onClick={submitReservation} disabled={!rf.clientId||!rf.date}>保存する</Btn>
             </div>
           </div>
         </div>
