@@ -1333,10 +1333,10 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                       {[...new Set(menus.map(m=>m.category).filter(Boolean))].map(c => <option key={c} value={c} />)}
                     </datalist>
                     <IMEInput value={menuForm.name} onChange={v=>setMenuForm(f=>({...f,name:v}))} placeholder="メニュー名（例: ワンカラー）" style={base} />
-                    <input type="number" defaultValue={menuForm.price} key={"price"+(editMenuId||"new")} onBlur={e=>setMenuForm(f=>({...f,price:e.target.value}))} placeholder="金額（税込・円）" style={base} />
-                    <input type="number" defaultValue={menuForm.duration} key={"duration"+(editMenuId||"new")} onBlur={e=>setMenuForm(f=>({...f,duration:e.target.value}))} placeholder="施術時間（分）例: 90" style={base} />
+                    <input type="number" value={menuForm.price} onChange={e=>setMenuForm(f=>({...f,price:e.target.value}))} placeholder="金額（税込・円）" style={base} />
+                    <input type="number" value={menuForm.duration} onChange={e=>setMenuForm(f=>({...f,duration:e.target.value}))} placeholder="施術時間（分）例: 90" style={base} />
                     <div style={{ fontSize:12, color:T.muted, marginTop:-4 }}>※予約フォームの空き時間計算に使います（未入力の場合は60分として計算）</div>
-                    <textarea defaultValue={menuForm.description} key={"desc"+(editMenuId||"new")} onBlur={e=>setMenuForm(f=>({...f,description:e.target.value}))} placeholder="説明文（例: デザインが決まっていない場合はこちらをお選びください）" rows={3} style={{ ...base, resize:"vertical", fontFamily:"inherit" }} />
+                    <IMEArea value={menuForm.description} onChange={v=>setMenuForm(f=>({...f,description:v}))} placeholder="説明文（例: デザインが決まっていない場合はこちらをお選びください）" rows={3} style={{ ...base, resize:"vertical" }} />
                     <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:T.text, cursor:"pointer" }}>
                       <input type="checkbox" checked={menuForm.active !== false} onChange={e=>setMenuForm(f=>({...f,active:e.target.checked}))} style={{ width:16, height:16 }} />
                       予約フォームに表示する
