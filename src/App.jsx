@@ -325,6 +325,9 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [tab, setTab] = useState("clients");
   const [pending, setPending] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
+  const [reservations, setReservations] = useState([]);
+  const [pendingReservations, setPendingReservations] = useState([]);
+  const [loadingPendingReservations, setLoadingPendingReservations] = useState(false);
   const [clientDirty, setClientDirty] = useState(false);
   const [karteDirty, setKarteDirty] = useState(false);
   const [members, setMembers] = useState([]);
@@ -395,6 +398,12 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     if (data) setKartes(data.map(k => ({ ...k, clientId: k.client_id, menuId: k.menu_id, treatMemo: k.treat_memo, talkMemo: k.talk_memo })));
   };
 
+  // ── 予約（来店前の予定） ──────────────────────────────────
+  const fetchReservations = async () => {
+    const { data, error } = await supabase.from("reservations").select("*").eq("user_id", session.user.id).order("date");
+    if (!error && data) setReservations(data.map(r => ({ ...r, clientId: r.client_id, menuId: r.menu_id, startTime: r.start_time, endTime: r.end_time })));
+  };
+
   const fetchSettings = async () => {
     const { data } = await supabase.from("salon_settings").select("*").eq("user_id", session.user.id).maybeSingle();
     if (data) {
@@ -409,7 +418,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([fetchClients(), fetchKartes(), fetchSettings()]).then(() => setLoading(false));
+    Promise.all([fetchClients(), fetchKartes(), fetchSettings(), fetchReservations()]).then(() => setLoading(false));
   }, [session]);
 
   const saveC = c => { setClients(c); LS.set("sn4_clients", c); };
@@ -446,6 +455,40 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     setPending(pending.filter(x => x.id !== p.id));
   };
 
+  // ── 予約リクエスト（お客様からの予約フォーム送信） ──────────
+  const fetchPendingReservations = async () => {
+    setLoadingPendingReservations(true);
+    const { data, error } = await supabase.from("pending_reservations").select("*").eq("status","pending").order("created_at", { ascending: false });
+    if (!error && data) setPendingReservations(data);
+    setLoadingPendingReservations(false);
+  };
+  const approvePendingReservation = async (p) => {
+    // フォーム送信時に電話番号から顧客を特定できていればclient_idが入っている。
+    // 入っていない場合は今の顧客データからもう一度、電話番号で照合する（登録済みの方のみ予約確定できる）
+    let clientId = p.client_id;
+    if (!clientId) {
+      const norm = s => (s||"").replace(/-/g,"");
+      const match = clients.find(c => c.phone && p.phone && norm(c.phone) === norm(p.phone));
+      if (!match) { alert(`${p.name} さんが顧客登録に見つかりません。\n先に「承認待ち」タブでお客様登録を済ませてから、もう一度予約を確定してください。`); return; }
+      clientId = match.id;
+    }
+    if (!confirm(`${p.name} さんの予約（${p.desired_date} ${p.desired_time||""}）を確定しますか？`)) return;
+    const id = genId();
+    const { error: insErr } = await supabase.from("reservations").insert({ id, user_id: session.user.id, client_id: clientId, date: p.desired_date, start_time: p.desired_time||null, menu_id: p.menu_id||null, memo: p.memo||"", status:"confirmed" });
+    if (insErr) { alert("予約の確定に失敗しました。時間をおいて再度お試しください。\n" + (insErr.message||"")); return; }
+    const { error: updErr } = await supabase.from("pending_reservations").update({ status:"approved" }).eq("id", p.id);
+    if (updErr) console.error("pending_reservations update error:", updErr);
+    await fetchReservations();
+    setPendingReservations(pendingReservations.filter(x => x.id !== p.id));
+    alert(`${p.name} さんの予約を確定しました！`);
+  };
+  const rejectPendingReservation = async (p) => {
+    if (!confirm(`${p.name} さんの予約リクエストを削除しますか？`)) return;
+    const { error } = await supabase.from("pending_reservations").update({ status:"rejected" }).eq("id", p.id);
+    if (error) { alert("削除に失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
+    setPendingReservations(pendingReservations.filter(x => x.id !== p.id));
+  };
+
   const fetchMembers = async () => {
     const { data } = await supabase.from("salon_members").select("*").order("created_at");
     if (data) setMembers(data);
@@ -476,6 +519,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const getMenu   = id => menus.find(m => m.id === id);
   const lastVisit = id => kartes.filter(k => (k.clientId || k.client_id) === id).sort((a,b) => b.date.localeCompare(a.date))[0]?.date || null;
   const byDate    = ds => kartes.filter(k => k.date === ds);
+  const byDateRes = ds => reservations.filter(r => r.date === ds && r.status !== "cancelled");
   const todayMD   = () => { const d = new Date(); return `${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
   const isBirthday = (bday, ds) => { if (!bday) return false; return ds.slice(5) === bday.slice(5); };
   const birthdayClientsThisMonth = () => {
@@ -726,7 +770,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     { key:"settings", label:"設定",     shortLabel:"設定" },
   ];
 
-  useEffect(() => { if (tab === "pending") fetchPending(); }, [tab]);
+  useEffect(() => { if (tab === "pending") { fetchPending(); fetchPendingReservations(); } }, [tab]);
   useEffect(() => { if (tab === "settings" && settingsSub === "members") fetchMembers(); }, [tab, settingsSub]);
   useEffect(() => {
     const last = LS.get("sn4_last_export", null);
@@ -738,6 +782,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const closeClientModal = () => { if (clientDirty && !confirm("変更を破棄しますか？")) return; setShowClientModal(false); setClientDirty(false); };
   const closeKarteModal  = () => { if (karteDirty  && !confirm("変更を破棄しますか？")) return; setShowKarteModal(false);  setKarteDirty(false); };
   const REGISTER_URL = typeof window !== "undefined" ? window.location.origin + "/register?salon=" + session.user.id : "";
+  const BOOKING_URL = typeof window !== "undefined" ? window.location.origin + "/book?salon=" + session.user.id : "";
 
   // ── Feedback ──────────────────────────────────────────────────
   const [feedbackText, setFeedbackText] = useState("");
@@ -891,12 +936,14 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   {Array.from({ length:daysInMonth }, (_,i) => {
                     const d=i+1, ds=calDs(d);
                     const hasK = kartes.some(k => k.date===ds);
+                    const hasRes = byDateRes(ds).length>0;
                     const hasBday = clients.some(c => isBirthday(c.birthday, ds));
                     const isSel=calSel===ds, isToday=ds===todayStr();
                     return (
                       <div key={d} onClick={() => setCalSel(ds)} style={{ textAlign:"center", padding:"5px 2px 2px", borderRadius:7, cursor:"pointer", background:isSel?T.accent:isToday?T.accent+"22":"transparent", color:isSel?"#fff":T.text, fontSize:13, fontWeight:isToday?"bold":"normal", userSelect:"none" }}>
                         {d}
                         <div style={{ display:"flex", justifyContent:"center", gap:2, marginTop:1 }}>
+                          {hasRes && <div style={{ width:4, height:4, borderRadius:"50%", background:isSel?"#fff":"#5090c0" }} />}
                           {hasK  && <div style={{ width:4, height:4, borderRadius:"50%", background:isSel?"#fff":T.accent }} />}
                           {hasBday && <div style={{ width:4, height:4, borderRadius:"50%", background:isSel?"#fff":"#e07060" }} />}
                         </div>
@@ -904,7 +951,8 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                     );
                   })}
                 </div>
-                <div style={{ display:"flex", gap:12, marginTop:10, fontSize:11, color:T.muted }}>
+                <div style={{ display:"flex", gap:12, marginTop:10, fontSize:11, color:T.muted, flexWrap:"wrap" }}>
+                  <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#5090c0", marginRight:4 }} />予約あり</span>
                   <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:T.accent, marginRight:4 }} />カルテあり</span>
                   <span><span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:"#e07060", marginRight:4 }} />誕生日</span>
                 </div>
@@ -915,6 +963,21 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   {birthdayClientsThisMonth().map(c => <div key={c.id} style={{ fontSize:13, marginBottom:4 }}>{c.birthday.slice(5).replace("-","/")}　{c.name}</div>)}
                 </Card>
               )}
+              {byDateRes(calSel).length>0 && <>
+                <div style={{ margin:"14px 0 10px" }}>
+                  <span style={{ fontSize:13, color:"#5090c0", fontFamily:"'Cormorant Garamond',serif" }}>予約（{byDateRes(calSel).length}件）</span>
+                </div>
+                {byDateRes(calSel).map(r => {
+                  const c = getClient(r.clientId);
+                  return (
+                    <Card key={r.id} style={{ background:"#5090c012", border:"1px solid #5090c040" }}>
+                      <div style={{ fontSize:15, fontWeight:"bold" }}>{c?.name||"不明"}</div>
+                      <div style={{ fontSize:13, color:T.muted, marginTop:2 }}>{r.startTime||""}{r.menuId && getMenu(r.menuId) ? "　"+getMenu(r.menuId).name : ""}</div>
+                      {r.memo && <div style={{ fontSize:12, color:T.muted, marginTop:4 }}>{r.memo}</div>}
+                    </Card>
+                  );
+                })}
+              </>}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", margin:"14px 0 10px" }}>
                 <span style={{ fontSize:13, color:T.sub, fontFamily:"'Cormorant Garamond',serif" }}>{calSel}（{byDate(calSel).length}件）</span>
                 <Btn small onClick={() => openNewKarte()}>＋ カルテ追加</Btn>
@@ -983,6 +1046,37 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                   <div style={{ display:"flex", gap:8, marginTop:12 }}>
                     <button onClick={() => approvePending(p)} style={{ flex:1, padding:"11px 12px", background:T.accent, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontSize:14, fontFamily:"'Cormorant Garamond',serif", letterSpacing:"0.06em" }}>✓ 承認して登録</button>
                     <button onClick={() => rejectPending(p)} style={{ flexShrink:0, padding:"11px 14px", background:T.danger, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontSize:14, fontFamily:"'Cormorant Garamond',serif" }}>削除</button>
+                  </div>
+                </Card>
+              ))}
+
+              <div style={{ height:1, background:T.border, margin:"28px 0 20px" }} />
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                <div style={{ fontSize:13, color:T.sub, fontFamily:"'Cormorant Garamond',serif" }}>予約リクエスト一覧</div>
+                <Btn small onClick={fetchPendingReservations}>更新</Btn>
+              </div>
+              <Card style={{ marginBottom:16, background:"#5090c010", border:"1px solid #5090c040" }}>
+                <div style={{ fontSize:14, fontWeight:"bold", color:T.text, marginBottom:8 }}>ご予約用QRコード</div>
+                <div style={{ fontSize:12, color:T.muted, marginBottom:12, lineHeight:1.7 }}>登録済みのお客様が、このQRコードから来店希望日をリクエストできます。<br/>内容を確認して「予約を確定」を押すとカレンダーに反映されます。</div>
+                <div style={{ background:"#fff", padding:16, borderRadius:12, textAlign:"center", marginBottom:10 }}>
+                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(BOOKING_URL)}`} alt="QR Code" style={{ width:200, height:200, display:"block", margin:"0 auto" }} />
+                  <div style={{ fontSize:11, color:T.muted, marginTop:8 }}>{BOOKING_URL}</div>
+                </div>
+                <Btn full color={T.sub} onClick={() => window.print()}>印刷する</Btn>
+              </Card>
+              {loadingPendingReservations && <div style={{ textAlign:"center", color:T.muted, fontSize:13, padding:"20px 0" }}>読み込み中...</div>}
+              {!loadingPendingReservations && pendingReservations.length === 0 && <div style={{ textAlign:"center", color:T.muted, fontSize:13, padding:"30px 0" }}>予約リクエストはありません</div>}
+              {pendingReservations.map(p => (
+                <Card key={p.id}>
+                  <div style={{ fontSize:16, fontWeight:"bold", color:T.text }}>{p.name}</div>
+                  <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>{p.phone}</div>
+                  <div style={{ fontSize:14, color:"#5090c0", marginTop:6, fontWeight:"bold" }}>{p.desired_date} {p.desired_time||""}</div>
+                  {p.menu_id && getMenu(p.menu_id) && <div style={{ fontSize:13, color:T.muted, marginTop:2 }}>{getMenu(p.menu_id).name}</div>}
+                  {p.memo && <div style={{ fontSize:13, color:T.muted, marginTop:4 }}>{p.memo}</div>}
+                  <div style={{ fontSize:11, color:T.muted, marginTop:6 }}>{new Date(p.created_at).toLocaleString("ja-JP")} 送信</div>
+                  <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                    <button onClick={() => approvePendingReservation(p)} style={{ flex:1, padding:"11px 12px", background:"#5090c0", color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontSize:14, fontFamily:"'Cormorant Garamond',serif", letterSpacing:"0.06em" }}>✓ 予約を確定</button>
+                    <button onClick={() => rejectPendingReservation(p)} style={{ flexShrink:0, padding:"11px 14px", background:T.danger, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontSize:14, fontFamily:"'Cormorant Garamond',serif" }}>削除</button>
                   </div>
                 </Card>
               ))}
