@@ -4,6 +4,7 @@ import App from './App.jsx'
 import ConfirmPage from './ConfirmPage.jsx'
 import LegalNotice from './LegalNotice.jsx'
 import CustomerForm from './CustomerForm.jsx'
+import ReservationForm from './ReservationForm.jsx'
 import './index.css'
 
 // /confirmed パスのときだけ認証完了ページを表示
@@ -12,9 +13,11 @@ const isConfirmPage = window.location.pathname === '/confirmed'
 const isLegalPage = window.location.pathname === '/legal'
 // /register パスのときはお客様用の新規カルテ登録フォームを表示（QRコードから遷移）
 const isRegisterPage = window.location.pathname === '/register'
+// /book パスのときはお客様用の予約リクエストフォームを表示（QRコードから遷移）
+const isBookingPage = window.location.pathname === '/book'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {isConfirmPage ? <ConfirmPage /> : isLegalPage ? <LegalNotice /> : isRegisterPage ? <CustomerForm /> : <App />}
+    {isConfirmPage ? <ConfirmPage /> : isLegalPage ? <LegalNotice /> : isRegisterPage ? <CustomerForm /> : isBookingPage ? <ReservationForm /> : <App />}
   </React.StrictMode>,
 )
