@@ -379,7 +379,8 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [copiedId, setCopiedId] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [settingsSub, setSettingsSub] = useState("theme");
-  const [menuForm, setMenuForm] = useState({ name:"", price:"", duration:"" });
+  const [menuForm, setMenuForm] = useState({ name:"", price:"", duration:"", category:"", description:"", active:true, image:"" });
+  const [menuImgUploading, setMenuImgUploading] = useState(false);
   const [editMenuId, setEditMenuId] = useState(null);
   const [tplForm, setTplForm] = useState("");
 
@@ -649,6 +650,27 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
     }
   };
 
+  // メニュー画像をアップロードして公開URLをmenuFormに反映する
+  // （メニュー画像は予約フォームで匿名のお客様にそのまま見せる前提の情報なので、
+  // カルテ写真と違って非公開にする理由がなく、公開バケット+公開URLでシンプルに扱う）
+  const handleMenuImage = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    setMenuImgUploading(true);
+    try {
+      const compressed = await compressImage(f, 800, 0.75);
+      const path = `${session.user.id}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.jpg`;
+      const { error } = await supabase.storage.from("menu-images").upload(path, compressed, { contentType:"image/jpeg", upsert:false });
+      if (error) { alert("画像のアップロードに失敗しました。時間をおいて再度お試しください。\n" + (error.message||"")); return; }
+      const { data } = supabase.storage.from("menu-images").getPublicUrl(path);
+      setMenuForm(f2 => ({ ...f2, image: data.publicUrl }));
+    } catch (err) {
+      alert("画像の処理に失敗しました。\n" + (err.message||""));
+    } finally {
+      setMenuImgUploading(false);
+      e.target.value = "";
+    }
+  };
+
   // カルテ写真を開く（新形式=Storageパスはsigned URLを発行、旧形式=base64はそのまま表示）
   const openPhoto = async path => {
     if (!path) return;
@@ -661,7 +683,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const addMenu = () => {
     if (!menuForm.name.trim()) { alert("メニュー名を入力してください"); return; }
     if (editMenuId) { saveM(menus.map(m => m.id===editMenuId ? { ...m, ...menuForm } : m)); setEditMenuId(null); }
-    else saveM([...menus, { id:genId(), name:menuForm.name, price:menuForm.price, duration:menuForm.duration }]);
+    else saveM([...menus, { id:genId(), ...menuForm }]);
     setMenuForm({ name:"", price:"" });
   };
   const deleteMenu = id => { if (!confirm("このメニューを削除しますか？")) return; saveM(menus.filter(m => m.id!==id)); };
@@ -1295,20 +1317,50 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
               {settingsSub==="menus" && (
                 <Card>
                   <div style={{ fontSize:15, fontFamily:"'Cormorant Garamond',serif", color:T.accent, marginBottom:14 }}>メニュー管理</div>
+                  <div style={{ fontSize:12, color:T.muted, marginBottom:14, lineHeight:1.6 }}>
+                    ここで登録した内容がそのままお客様の予約フォームに表示されます。「予約フォームに表示する」をオフにすると、一時的に非表示（予約不可）にできます。
+                  </div>
                   <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
-                    <IMEInput value={menuForm.name} onChange={v=>setMenuForm(f=>({...f,name:v}))} placeholder="メニュー名（例: カット）" style={base} />
+                    <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                      <label style={{ position:"relative", width:64, height:64, borderRadius:10, border:`1px dashed ${T.border}`, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", flexShrink:0, cursor:"pointer", background:T.card }}>
+                        {menuForm.image ? <img src={menuForm.image} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <span style={{ fontSize:10, color:T.muted, textAlign:"center" }}>{menuImgUploading ? "…" : "画像\n追加"}</span>}
+                        <input type="file" accept="image/*" onChange={handleMenuImage} style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer" }} />
+                      </label>
+                      <div style={{ fontSize:12, color:T.muted, lineHeight:1.6 }}>メニュー写真（任意）<br/>予約フォームのメニュー一覧に表示されます</div>
+                    </div>
+                    <input list="menu-categories" value={menuForm.category} onChange={e=>setMenuForm(f=>({...f,category:e.target.value}))} placeholder="カテゴリ（例: ハンド／フット）" style={base} />
+                    <datalist id="menu-categories">
+                      {[...new Set(menus.map(m=>m.category).filter(Boolean))].map(c => <option key={c} value={c} />)}
+                    </datalist>
+                    <IMEInput value={menuForm.name} onChange={v=>setMenuForm(f=>({...f,name:v}))} placeholder="メニュー名（例: ワンカラー）" style={base} />
                     <input type="number" defaultValue={menuForm.price} key={"price"+(editMenuId||"new")} onBlur={e=>setMenuForm(f=>({...f,price:e.target.value}))} placeholder="金額（税込・円）" style={base} />
                     <input type="number" defaultValue={menuForm.duration} key={"duration"+(editMenuId||"new")} onBlur={e=>setMenuForm(f=>({...f,duration:e.target.value}))} placeholder="施術時間（分）例: 90" style={base} />
                     <div style={{ fontSize:12, color:T.muted, marginTop:-4 }}>※予約フォームの空き時間計算に使います（未入力の場合は60分として計算）</div>
+                    <textarea defaultValue={menuForm.description} key={"desc"+(editMenuId||"new")} onBlur={e=>setMenuForm(f=>({...f,description:e.target.value}))} placeholder="説明文（例: デザインが決まっていない場合はこちらをお選びください）" rows={3} style={{ ...base, resize:"vertical", fontFamily:"inherit" }} />
+                    <label style={{ display:"flex", alignItems:"center", gap:8, fontSize:13, color:T.text, cursor:"pointer" }}>
+                      <input type="checkbox" checked={menuForm.active !== false} onChange={e=>setMenuForm(f=>({...f,active:e.target.checked}))} style={{ width:16, height:16 }} />
+                      予約フォームに表示する
+                    </label>
                     <Btn full onClick={addMenu}>{editMenuId ? "更新する" : "追加"}</Btn>
-                    {editMenuId && <Btn full color={T.sub} onClick={() => { setEditMenuId(null); setMenuForm({ name:"", price:"", duration:"" }); }}>キャンセル</Btn>}
+                    {editMenuId && <Btn full color={T.sub} onClick={() => { setEditMenuId(null); setMenuForm({ name:"", price:"", duration:"", category:"", description:"", active:true, image:"" }); }}>キャンセル</Btn>}
                   </div>
                   {menus.length===0 && <div style={{ fontSize:13, color:T.muted, textAlign:"center", padding:"12px 0" }}>メニューがありません</div>}
                   {menus.map(m => (
-                    <div key={m.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
-                      <div><span style={{ fontSize:14 }}>{m.name}</span>{m.price && <span style={{ fontSize:13, color:T.muted, marginLeft:8 }}>¥{parseInt(m.price).toLocaleString()}</span>}{m.duration && <span style={{ fontSize:12, color:T.muted, marginLeft:8 }}>（{m.duration}分）</span>}</div>
-                      <div style={{ display:"flex", gap:6 }}>
-                        <Btn small color={T.sub} onClick={() => { setEditMenuId(m.id); setMenuForm({ name:m.name, price:m.price, duration:m.duration||"" }); }}>編集</Btn>
+                    <div key={m.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:`1px solid ${T.border}`, opacity:m.active===false?0.5:1 }}>
+                      <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+                        {m.image && <img src={m.image} style={{ width:40, height:40, borderRadius:8, objectFit:"cover", flexShrink:0 }} />}
+                        <div>
+                          {m.category && <div style={{ fontSize:11, color:T.accent }}>{m.category}</div>}
+                          <div>
+                            <span style={{ fontSize:14 }}>{m.name}</span>
+                            {m.price && <span style={{ fontSize:13, color:T.muted, marginLeft:8 }}>¥{parseInt(m.price).toLocaleString()}</span>}
+                            {m.duration && <span style={{ fontSize:12, color:T.muted, marginLeft:8 }}>（{m.duration}分）</span>}
+                            {m.active===false && <span style={{ fontSize:11, color:T.danger, marginLeft:8 }}>非表示</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                        <Btn small color={T.sub} onClick={() => { setEditMenuId(m.id); setMenuForm({ name:m.name, price:m.price, duration:m.duration||"", category:m.category||"", description:m.description||"", active:m.active!==false, image:m.image||"" }); }}>編集</Btn>
                         <Btn small color={T.danger} onClick={() => deleteMenu(m.id)}>削除</Btn>
                       </div>
                     </div>

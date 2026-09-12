@@ -98,12 +98,44 @@ export default function ReservationForm() {
           <input style={{ ...s.inp, WebkitAppearance:"none", appearance:"none" }} type="time" value={form.desired_time} onChange={e=>setForm(f=>({...f,desired_time:e.target.value}))} />
           {menus.length > 0 && <>
             <label style={s.lbl}>ご希望メニュー</label>
-            <select style={s.inp} value={form.menu_id} onChange={e=>setForm(f=>({...f,menu_id:e.target.value}))}>
-              <option value="">選択してください（未定でも可）</option>
-              {menus.map((m, i) => (
-                <option key={m.id ?? i} value={m.id ?? m.name}>{m.name}{m.price ? `（¥${m.price}）` : ""}</option>
-              ))}
-            </select>
+            <div style={{ marginBottom:16 }}>
+              {(() => {
+                const grouped = menus.reduce((acc, m) => {
+                  const cat = m.category || "メニュー";
+                  (acc[cat] = acc[cat] || []).push(m);
+                  return acc;
+                }, {});
+                const showCategory = Object.keys(grouped).length > 1;
+                return Object.entries(grouped).map(([cat, items]) => (
+                <div key={cat} style={{ marginBottom:12 }}>
+                  {showCategory &&
+                    <div style={{ fontSize:12, color:"#a0897a", marginBottom:6, fontFamily:"'Cormorant Garamond',serif", letterSpacing:"0.05em" }}>{cat}</div>}
+                  {items.map((m, i) => {
+                    const val = m.id ?? m.name;
+                    const selected = form.menu_id === val;
+                    return (
+                      <label key={val ?? i} style={{
+                        display:"flex", gap:10, alignItems:"flex-start", padding:"10px 12px", marginBottom:8,
+                        border:`1px solid ${selected ? "#c8937a" : "#ede6e2"}`, borderRadius:10,
+                        background: selected ? "#fff7f0" : "#fff", cursor:"pointer",
+                      }}>
+                        <input type="radio" name="menu_id" checked={selected} onChange={()=>setForm(f=>({...f,menu_id:val}))} style={{ marginTop:4 }} />
+                        {m.image && <img src={m.image} style={{ width:44, height:44, borderRadius:8, objectFit:"cover", flexShrink:0 }} />}
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:14, color:"#3d2c26" }}>
+                            {m.name}
+                            {m.price && <span style={{ color:"#a0897a", marginLeft:8 }}>¥{parseInt(m.price).toLocaleString()}</span>}
+                            {m.duration && <span style={{ fontSize:12, color:"#b09a92", marginLeft:6 }}>（{m.duration}分）</span>}
+                          </div>
+                          {m.description && <div style={{ fontSize:12, color:"#7a6a60", marginTop:4, lineHeight:1.6 }}>{m.description}</div>}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                ));
+              })()}
+            </div>
           </>}
           <label style={s.lbl}>ご要望・メモ（任意）</label>
           <textarea style={{ ...s.inp, resize:"vertical" }} rows={3} value={form.memo} onChange={e=>setForm(f=>({...f,memo:e.target.value}))} placeholder="デザインのご希望などあればご記入ください" />
