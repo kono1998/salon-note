@@ -1,9 +1,31 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { supabase } from "./supabase";
 
 const WEEKDAYS = ["日","月","火","水","木","金","土"];
 const pad2 = n => String(n).padStart(2, "0");
 const toDateStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const addDays = (date, n) => { const d = new Date(date); d.setDate(d.getDate() + n); return d; };
+const formatJpDate = dStr => {
+  const dt = new Date(dStr + "T00:00:00");
+  return `${dt.getFullYear()}年${dt.getMonth() + 1}月${dt.getDate()}日（${WEEKDAYS[dt.getDay()]}）`;
+};
+const fmtShort = d => `${d.getMonth() + 1}/${d.getDate()}（${WEEKDAYS[d.getDay()]}）`;
+
+// 営業時間・予約の刻み幅（暫定値。将来的にはsalon_settingsで設定可能にする予定）
+const BUSINESS_START = "10:00";
+const BUSINESS_END = "19:00";
+const SLOT_MINUTES = 15;
+function buildTimeSlots(startStr, endStr, stepMin) {
+  const [sh, sm] = startStr.split(":").map(Number);
+  const [eh, em] = endStr.split(":").map(Number);
+  const startMin = sh * 60 + sm, endMin = eh * 60 + em;
+  const slots = [];
+  for (let t = startMin; t < endMin; t += stepMin) {
+    slots.push(`${pad2(Math.floor(t / 60))}:${pad2(t % 60)}`);
+  }
+  return slots;
+}
+const TIME_SLOTS = buildTimeSlots(BUSINESS_START, BUSINESS_END, SLOT_MINUTES);
 
 // 月表示カレンダー用のセル配列を作る（先頭・末尾はnullで埋めて7列グリッドにする）
 function buildMonthGrid(monthDate) {
@@ -30,8 +52,10 @@ export default function ReservationForm() {
   // 匿名のお客様がこのフォームからサロン名/メニューを読める唯一の安全な経路がこのRPC。
   const [salonName, setSalonName] = useState("");
   const [menus, setMenus] = useState([]);
-  // 予約日程選択カレンダーの表示中の月
+  // 予約日程選択：月カレンダー表示 → 日付タップで週×時間枠グリッドに切り替え、という2段階UI
+  const [pickerPhase, setPickerPhase] = useState("calendar"); // "calendar" | "slots"
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
+  const [weekStart, setWeekStart] = useState(null);
 
   useEffect(() => {
     if (!salonId) return;
@@ -49,12 +73,19 @@ export default function ReservationForm() {
   // 現時点では「今日以降＝リクエスト可能」という暫定ルール。
   // Googleカレンダー連携（実際の空き時間計算）が入り次第、ここを実データに差し替える。
   const isBookable = date => date >= today;
+  const isSlotBookable = (date, timeStr) => {
+    const [h, m] = timeStr.split(":").map(Number);
+    const dt = new Date(date); dt.setHours(h, m, 0, 0);
+    return dt >= new Date();
+  };
   const isPrevMonthDisabled = calMonth.getFullYear() === today.getFullYear() && calMonth.getMonth() === today.getMonth();
+  const isPrevWeekDisabled = !!weekStart && weekStart <= today;
   const calGrid = buildMonthGrid(calMonth);
+  const weekDays = weekStart ? Array.from({ length:7 }, (_, i) => addDays(weekStart, i)) : [];
 
   const submit = async () => {
     if (!form.name.trim() || !form.phone.trim()) { alert("お名前と電話番号は必須です"); return; }
-    if (!form.desired_date) { alert("ご希望日をお選びください"); return; }
+    if (!form.desired_date || !form.desired_time) { alert("ご希望の日時をお選びください"); return; }
     if (!salonId) { alert("このリンクは無効です。サロンのQRコードから再度アクセスしてください。"); return; }
     setLoading(true);
     // pending_reservationsへの直接INSERTだと、匿名ユーザーはINSERT後にその行を
@@ -87,11 +118,20 @@ export default function ReservationForm() {
     calHeader: { display:"flex", alignItems:"center", justifyContent:"space-between", background:"#c8937a", color:"#fff", padding:"8px 6px" },
     calNavBtn: { background:"none", border:"none", color:"#fff", fontSize:20, cursor:"pointer", padding:"4px 14px", lineHeight:1 },
     calNavBtnDisabled: { background:"none", border:"none", color:"rgba(255,255,255,0.35)", fontSize:20, cursor:"default", padding:"4px 14px", lineHeight:1 },
-    calTitle: { fontFamily:"'Cormorant Garamond',serif", fontSize:16, letterSpacing:"0.08em" },
+    calTitle: { fontFamily:"'Cormorant Garamond',serif", fontSize:15, letterSpacing:"0.06em" },
     calWeekRow: { display:"grid", gridTemplateColumns:"repeat(7,1fr)", borderBottom:"1px solid #ede6e2" },
     calWeekCell: { textAlign:"center", fontSize:12, padding:"8px 0", fontWeight:600 },
     calGrid: { display:"grid", gridTemplateColumns:"repeat(7,1fr)" },
     calCell: { minHeight:46, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontSize:13, border:"none", padding:"6px 0" },
+    selectedCard: { display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, border:"1px solid #ede6e2", borderRadius:12, padding:"14px 16px", background:"#fff7f0" },
+    changeBtn: { flexShrink:0, padding:"8px 14px", background:"#fff", color:"#c8937a", border:"1px solid #c8937a", borderRadius:20, fontSize:12, cursor:"pointer", fontFamily:"inherit" },
+    backLink: { display:"block", width:"100%", textAlign:"center", background:"none", border:"none", color:"#a0897a", fontSize:12, padding:"10px 0", cursor:"pointer", textDecoration:"underline", fontFamily:"inherit" },
+    slotGridWrap: { overflowX:"auto", WebkitOverflowScrolling:"touch" },
+    slotGrid: { display:"grid", gridTemplateColumns:"46px repeat(7,minmax(40px,1fr))", minWidth:480 },
+    slotCornerCell: { borderBottom:"1px solid #ede6e2", background:"#fff" },
+    slotHeaderCell: { textAlign:"center", fontSize:11, padding:"6px 2px", fontWeight:600, borderBottom:"1px solid #ede6e2", background:"#fff", lineHeight:1.4 },
+    slotTimeCell: { fontSize:10, color:"#a0897a", padding:"7px 3px", textAlign:"center", borderBottom:"1px solid #f3ece8", background:"#fdf7f4", whiteSpace:"nowrap" },
+    slotCell: { textAlign:"center", padding:"7px 2px", borderBottom:"1px solid #f3ece8", border:"none", background:"#fff", fontSize:13 },
   };
 
   if (done) return (
@@ -126,58 +166,104 @@ export default function ReservationForm() {
           <label style={s.lbl}>電話番号 *</label>
           <input style={s.inp} type="tel" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="090-0000-0000" />
 
-          <label style={s.lbl}>ご希望日 *</label>
-          <div style={s.calWrap}>
-            <div style={s.calHeader}>
-              <button type="button"
-                onClick={()=>setCalMonth(m=>{ const p=new Date(m); p.setMonth(p.getMonth()-1); return p; })}
-                disabled={isPrevMonthDisabled}
-                style={isPrevMonthDisabled ? s.calNavBtnDisabled : s.calNavBtn}>‹</button>
-              <div style={s.calTitle}>{calMonth.getFullYear()}年 {calMonth.getMonth()+1}月</div>
-              <button type="button"
-                onClick={()=>setCalMonth(m=>{ const n=new Date(m); n.setMonth(n.getMonth()+1); return n; })}
-                style={s.calNavBtn}>›</button>
-            </div>
-            <div style={s.calWeekRow}>
-              {WEEKDAYS.map((w,i)=>(
-                <div key={w} style={{ ...s.calWeekCell, color: i===0 ? "#c97a7a" : i===6 ? "#7a97c9" : "#a0897a" }}>{w}</div>
-              ))}
-            </div>
-            <div style={s.calGrid}>
-              {calGrid.map((date, i) => {
-                if (!date) return <div key={i} style={s.calCell} />;
-                const dStr = toDateStr(date);
-                const bookable = isBookable(date);
-                const selected = form.desired_date === dStr;
-                return (
-                  <button type="button" key={i}
-                    disabled={!bookable}
-                    onClick={()=>setForm(f=>({...f,desired_date:dStr}))}
-                    style={{
-                      ...s.calCell,
-                      background: selected ? "#c8937a" : "transparent",
-                      color: selected ? "#fff" : bookable ? "#3d2c26" : "#d8cec8",
-                      cursor: bookable ? "pointer" : "default",
-                    }}>
-                    <div>{date.getDate()}</div>
-                    {bookable && <div style={{ fontSize:10, color: selected ? "#fff" : "#c8937a", marginTop:2 }}>○</div>}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          {form.desired_date && (() => {
-            const d = new Date(form.desired_date + "T00:00:00");
-            return (
-              <div style={{ fontSize:13, color:"#c8937a", marginTop:10 }}>
-                選択中：{d.getFullYear()}年{d.getMonth()+1}月{d.getDate()}日
-              </div>
-            );
-          })()}
-          <div style={{ height:16 }} />
+          <label style={s.lbl}>ご希望日時 *</label>
 
-          <label style={s.lbl}>ご希望時間</label>
-          <input style={{ ...s.inp, WebkitAppearance:"none", appearance:"none" }} type="time" value={form.desired_time} onChange={e=>setForm(f=>({...f,desired_time:e.target.value}))} />
+          {form.desired_date && form.desired_time ? (
+            <div style={{ ...s.selectedCard, marginBottom:16 }}>
+              <div>
+                <div style={{ fontSize:12, color:"#a0897a" }}>選択中の日時</div>
+                <div style={{ fontSize:15, color:"#3d2c26", marginTop:2 }}>{formatJpDate(form.desired_date)} {form.desired_time}〜</div>
+              </div>
+              <button type="button" style={s.changeBtn}
+                onClick={()=>{ setWeekStart(new Date(form.desired_date + "T00:00:00")); setPickerPhase("slots"); }}>
+                変更する
+              </button>
+            </div>
+          ) : pickerPhase === "calendar" ? (
+            <div style={{ marginBottom:16 }}>
+              <div style={s.calWrap}>
+                <div style={s.calHeader}>
+                  <button type="button"
+                    onClick={()=>setCalMonth(m=>{ const p=new Date(m); p.setMonth(p.getMonth()-1); return p; })}
+                    disabled={isPrevMonthDisabled}
+                    style={isPrevMonthDisabled ? s.calNavBtnDisabled : s.calNavBtn}>‹</button>
+                  <div style={s.calTitle}>{calMonth.getFullYear()}年 {calMonth.getMonth()+1}月</div>
+                  <button type="button"
+                    onClick={()=>setCalMonth(m=>{ const n=new Date(m); n.setMonth(n.getMonth()+1); return n; })}
+                    style={s.calNavBtn}>›</button>
+                </div>
+                <div style={s.calWeekRow}>
+                  {WEEKDAYS.map((w,i)=>(
+                    <div key={w} style={{ ...s.calWeekCell, color: i===0 ? "#c97a7a" : i===6 ? "#7a97c9" : "#a0897a" }}>{w}</div>
+                  ))}
+                </div>
+                <div style={s.calGrid}>
+                  {calGrid.map((date, i) => {
+                    if (!date) return <div key={i} style={s.calCell} />;
+                    const bookable = isBookable(date);
+                    return (
+                      <button type="button" key={i}
+                        disabled={!bookable}
+                        onClick={()=>{ setWeekStart(date); setPickerPhase("slots"); }}
+                        style={{
+                          ...s.calCell,
+                          background:"transparent",
+                          color: bookable ? "#3d2c26" : "#d8cec8",
+                          cursor: bookable ? "pointer" : "default",
+                        }}>
+                        <div>{date.getDate()}</div>
+                        {bookable && <div style={{ fontSize:10, color:"#c8937a", marginTop:2 }}>○</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginBottom:16 }}>
+              <div style={s.calWrap}>
+                <div style={s.calHeader}>
+                  <button type="button"
+                    onClick={()=>setWeekStart(w=>addDays(w,-7))}
+                    disabled={isPrevWeekDisabled}
+                    style={isPrevWeekDisabled ? s.calNavBtnDisabled : s.calNavBtn}>‹</button>
+                  <div style={s.calTitle}>{fmtShort(weekStart)}〜{fmtShort(addDays(weekStart,6))}</div>
+                  <button type="button"
+                    onClick={()=>setWeekStart(w=>addDays(w,7))}
+                    style={s.calNavBtn}>›</button>
+                </div>
+                <div style={s.slotGridWrap}>
+                  <div style={s.slotGrid}>
+                    <div style={s.slotCornerCell} />
+                    {weekDays.map((d,i)=>(
+                      <div key={i} style={{ ...s.slotHeaderCell, color: d.getDay()===0 ? "#c97a7a" : d.getDay()===6 ? "#7a97c9" : "#3d2c26" }}>
+                        <div>{WEEKDAYS[d.getDay()]}</div>
+                        <div>{d.getDate()}</div>
+                      </div>
+                    ))}
+                    {TIME_SLOTS.map((t, ri) => (
+                      <Fragment key={ri}>
+                        <div style={s.slotTimeCell}>{t}</div>
+                        {weekDays.map((d, ci) => {
+                          const bookable = isSlotBookable(d, t);
+                          return (
+                            <button type="button" key={ci}
+                              disabled={!bookable}
+                              onClick={()=>setForm(f=>({ ...f, desired_date: toDateStr(d), desired_time: t }))}
+                              style={{ ...s.slotCell, color: bookable ? "#4c9a6a" : "#d8cec8", cursor: bookable ? "pointer" : "default" }}>
+                              {bookable ? "○" : "×"}
+                            </button>
+                          );
+                        })}
+                      </Fragment>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <button type="button" style={s.backLink} onClick={()=>setPickerPhase("calendar")}>‹ カレンダー表示に戻る</button>
+            </div>
+          )}
+
           {menus.length > 0 && <>
             <label style={s.lbl}>ご希望メニュー</label>
             <div style={{ marginBottom:16 }}>
