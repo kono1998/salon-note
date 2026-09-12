@@ -1,6 +1,23 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabase";
 
+const WEEKDAYS = ["日","月","火","水","木","金","土"];
+const pad2 = n => String(n).padStart(2, "0");
+const toDateStr = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+// 月表示カレンダー用のセル配列を作る（先頭・末尾はnullで埋めて7列グリッドにする）
+function buildMonthGrid(monthDate) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const startWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
 export default function ReservationForm() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ name:"", phone:"", desired_date:"", desired_time:"", menu_id:"", memo:"" });
@@ -13,6 +30,8 @@ export default function ReservationForm() {
   // 匿名のお客様がこのフォームからサロン名/メニューを読める唯一の安全な経路がこのRPC。
   const [salonName, setSalonName] = useState("");
   const [menus, setMenus] = useState([]);
+  // 予約日程選択カレンダーの表示中の月
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
 
   useEffect(() => {
     if (!salonId) return;
@@ -26,7 +45,12 @@ export default function ReservationForm() {
 
   const salonDisplay = salonName || "SALON NOTE";
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const today = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
+  // 現時点では「今日以降＝リクエスト可能」という暫定ルール。
+  // Googleカレンダー連携（実際の空き時間計算）が入り次第、ここを実データに差し替える。
+  const isBookable = date => date >= today;
+  const isPrevMonthDisabled = calMonth.getFullYear() === today.getFullYear() && calMonth.getMonth() === today.getMonth();
+  const calGrid = buildMonthGrid(calMonth);
 
   const submit = async () => {
     if (!form.name.trim() || !form.phone.trim()) { alert("お名前と電話番号は必須です"); return; }
@@ -59,6 +83,15 @@ export default function ReservationForm() {
     btn: { width:"100%", padding:"14px", background:"#c8937a", color:"#fff", border:"none", borderRadius:10, fontSize:16, cursor:"pointer", fontFamily:"'Cormorant Garamond',serif", letterSpacing:"0.08em", marginTop:8 },
     box: { background:"#fff", border:"1px solid #ede6e2", borderRadius:12, padding:"16px", marginBottom:16 },
     note: { fontSize:12, color:"#7a6a60", lineHeight:1.8, marginBottom:16, padding:"10px 12px", background:"#fff7f0", borderRadius:8, border:"1px solid #f0e0d0" },
+    calWrap: { border:"1px solid #ede6e2", borderRadius:12, overflow:"hidden", background:"#fff" },
+    calHeader: { display:"flex", alignItems:"center", justifyContent:"space-between", background:"#c8937a", color:"#fff", padding:"8px 6px" },
+    calNavBtn: { background:"none", border:"none", color:"#fff", fontSize:20, cursor:"pointer", padding:"4px 14px", lineHeight:1 },
+    calNavBtnDisabled: { background:"none", border:"none", color:"rgba(255,255,255,0.35)", fontSize:20, cursor:"default", padding:"4px 14px", lineHeight:1 },
+    calTitle: { fontFamily:"'Cormorant Garamond',serif", fontSize:16, letterSpacing:"0.08em" },
+    calWeekRow: { display:"grid", gridTemplateColumns:"repeat(7,1fr)", borderBottom:"1px solid #ede6e2" },
+    calWeekCell: { textAlign:"center", fontSize:12, padding:"8px 0", fontWeight:600 },
+    calGrid: { display:"grid", gridTemplateColumns:"repeat(7,1fr)" },
+    calCell: { minHeight:46, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontSize:13, border:"none", padding:"6px 0" },
   };
 
   if (done) return (
@@ -92,8 +125,57 @@ export default function ReservationForm() {
           <input style={s.inp} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="山田 花子" />
           <label style={s.lbl}>電話番号 *</label>
           <input style={s.inp} type="tel" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="090-0000-0000" />
+
           <label style={s.lbl}>ご希望日 *</label>
-          <input style={{ ...s.inp, WebkitAppearance:"none", appearance:"none" }} type="date" min={todayStr} value={form.desired_date} onChange={e=>setForm(f=>({...f,desired_date:e.target.value}))} />
+          <div style={s.calWrap}>
+            <div style={s.calHeader}>
+              <button type="button"
+                onClick={()=>setCalMonth(m=>{ const p=new Date(m); p.setMonth(p.getMonth()-1); return p; })}
+                disabled={isPrevMonthDisabled}
+                style={isPrevMonthDisabled ? s.calNavBtnDisabled : s.calNavBtn}>‹</button>
+              <div style={s.calTitle}>{calMonth.getFullYear()}年 {calMonth.getMonth()+1}月</div>
+              <button type="button"
+                onClick={()=>setCalMonth(m=>{ const n=new Date(m); n.setMonth(n.getMonth()+1); return n; })}
+                style={s.calNavBtn}>›</button>
+            </div>
+            <div style={s.calWeekRow}>
+              {WEEKDAYS.map((w,i)=>(
+                <div key={w} style={{ ...s.calWeekCell, color: i===0 ? "#c97a7a" : i===6 ? "#7a97c9" : "#a0897a" }}>{w}</div>
+              ))}
+            </div>
+            <div style={s.calGrid}>
+              {calGrid.map((date, i) => {
+                if (!date) return <div key={i} style={s.calCell} />;
+                const dStr = toDateStr(date);
+                const bookable = isBookable(date);
+                const selected = form.desired_date === dStr;
+                return (
+                  <button type="button" key={i}
+                    disabled={!bookable}
+                    onClick={()=>setForm(f=>({...f,desired_date:dStr}))}
+                    style={{
+                      ...s.calCell,
+                      background: selected ? "#c8937a" : "transparent",
+                      color: selected ? "#fff" : bookable ? "#3d2c26" : "#d8cec8",
+                      cursor: bookable ? "pointer" : "default",
+                    }}>
+                    <div>{date.getDate()}</div>
+                    {bookable && <div style={{ fontSize:10, color: selected ? "#fff" : "#c8937a", marginTop:2 }}>○</div>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {form.desired_date && (() => {
+            const d = new Date(form.desired_date + "T00:00:00");
+            return (
+              <div style={{ fontSize:13, color:"#c8937a", marginTop:10 }}>
+                選択中：{d.getFullYear()}年{d.getMonth()+1}月{d.getDate()}日
+              </div>
+            );
+          })()}
+          <div style={{ height:16 }} />
+
           <label style={s.lbl}>ご希望時間</label>
           <input style={{ ...s.inp, WebkitAppearance:"none", appearance:"none" }} type="time" value={form.desired_time} onChange={e=>setForm(f=>({...f,desired_time:e.target.value}))} />
           {menus.length > 0 && <>
