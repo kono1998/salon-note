@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import { supabase } from "./supabase";
 
 const WEEKDAYS = ["日","月","火","水","木","金","土"];
@@ -11,21 +11,22 @@ const formatJpDate = dStr => {
 };
 const fmtShort = d => `${d.getMonth() + 1}/${d.getDate()}（${WEEKDAYS[d.getDay()]}）`;
 
-// 営業時間・予約の刻み幅（暫定値。将来的にはsalon_settingsで設定可能にする予定）
-const BUSINESS_START = "10:00";
-const BUSINESS_END = "19:00";
+// 予約の時間刻み幅（15分固定）。営業開始・最終受付時刻はサロンごとにsalon_settingsで設定し、
+// フォーム側ではRPC（get_salon_public_info）経由で取得する。未取得時のみ以下を仮値として使う。
+const DEFAULT_BUSINESS_START = "10:00";
+const DEFAULT_BUSINESS_LAST_START = "18:45";
 const SLOT_MINUTES = 15;
+// endStrは「営業終了時刻」ではなく「最終受付（開始）時刻」なので、endStr自身も枠に含める（<=）。
 function buildTimeSlots(startStr, endStr, stepMin) {
   const [sh, sm] = startStr.split(":").map(Number);
   const [eh, em] = endStr.split(":").map(Number);
   const startMin = sh * 60 + sm, endMin = eh * 60 + em;
   const slots = [];
-  for (let t = startMin; t < endMin; t += stepMin) {
+  for (let t = startMin; t <= endMin; t += stepMin) {
     slots.push(`${pad2(Math.floor(t / 60))}:${pad2(t % 60)}`);
   }
   return slots;
 }
-const TIME_SLOTS = buildTimeSlots(BUSINESS_START, BUSINESS_END, SLOT_MINUTES);
 
 // 月表示カレンダー用のセル配列を作る（先頭・末尾はnullで埋めて7列グリッドにする）
 function buildMonthGrid(monthDate) {
@@ -56,6 +57,8 @@ export default function ReservationForm() {
   const [pickerPhase, setPickerPhase] = useState("calendar"); // "calendar" | "slots"
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [weekStart, setWeekStart] = useState(null);
+  // 営業開始・最終受付時刻（サロンごとの設定。RPCで取得できるまでは仮値を使う）
+  const [hours, setHours] = useState({ start: DEFAULT_BUSINESS_START, lastStart: DEFAULT_BUSINESS_LAST_START });
 
   useEffect(() => {
     if (!salonId) return;
@@ -64,6 +67,12 @@ export default function ReservationForm() {
       const row = Array.isArray(data) ? data[0] : data;
       if (row?.salon_name) setSalonName(row.salon_name);
       if (Array.isArray(row?.menus)) setMenus(row.menus);
+      if (row?.business_start || row?.business_last_start) {
+        setHours(h => ({
+          start: row.business_start || h.start,
+          lastStart: row.business_last_start || h.lastStart,
+        }));
+      }
     });
   }, [salonId]);
 
@@ -82,6 +91,7 @@ export default function ReservationForm() {
   const isPrevWeekDisabled = !!weekStart && weekStart <= today;
   const calGrid = buildMonthGrid(calMonth);
   const weekDays = weekStart ? Array.from({ length:7 }, (_, i) => addDays(weekStart, i)) : [];
+  const TIME_SLOTS = useMemo(() => buildTimeSlots(hours.start, hours.lastStart, SLOT_MINUTES), [hours.start, hours.lastStart]);
 
   const submit = async () => {
     if (!form.name.trim() || !form.phone.trim()) { alert("お名前と電話番号は必須です"); return; }

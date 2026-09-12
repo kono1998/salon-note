@@ -317,7 +317,7 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
   const [voiceInput, setVoiceInput] = useState(false);
   const [micActive,  setMicActive]  = useState(null);
   const micRecRef = useRef(null);
-  const [salonInfo, setSalonInfo] = useState({ name:"", genre:"", address:"", invoiceNumber:"" });
+  const [salonInfo, setSalonInfo] = useState({ name:"", genre:"", address:"", invoiceNumber:"", businessStart:"10:00", businessLastStart:"18:45" });
   const [receiptKarte, setReceiptKarte] = useState(null);
   const [showBackupAlert, setShowBackupAlert] = useState(false);
   const T = THEMES[themeKey] || THEMES.sakura;
@@ -412,7 +412,8 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
       if (data.templates) setTemplates(data.templates);
       if (data.payments) setPayments(data.payments);
       if (data.theme) { setThemeKey(data.theme); LS.set("sn4_theme", data.theme); }
-      if (data.salon_name !== undefined) setSalonInfo({ name: data.salon_name || "", genre: data.genre || "", address: data.salon_address || "", invoiceNumber: data.invoice_number || "" });
+      if (data.salon_name !== undefined) setSalonInfo(s => ({ ...s, name: data.salon_name || "", genre: data.genre || "", address: data.salon_address || "", invoiceNumber: data.invoice_number || "" }));
+      if (data.business_start || data.business_last_start) setSalonInfo(s => ({ ...s, businessStart: data.business_start || s.businessStart, businessLastStart: data.business_last_start || s.businessLastStart }));
       if (data.voice_input_enabled !== undefined) setVoiceInput(!!data.voice_input_enabled);
     }
   };
@@ -1298,6 +1299,11 @@ function MainApp({ session, myRole, subStatus, onShowPayment }) {
                     <div><Lbl t="住所（領収書に記載されます・任意）" /><input defaultValue={salonInfo.address} onBlur={async e => { const s={...salonInfo,address:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="北海道〇〇市〇〇1-2-3" style={base} /></div>
                     <div><Lbl t="適格請求書発行事業者 登録番号（未登録なら空欄でOK）" /><input defaultValue={salonInfo.invoiceNumber} onBlur={async e => { const s={...salonInfo,invoiceNumber:e.target.value}; setSalonInfo(s); await saveSettings({ salon_name: s.name, genre: s.genre, salon_address: s.address, invoice_number: s.invoiceNumber }); }} placeholder="T1234567890123" style={base} /></div>
                     <div style={{ fontSize:12, color:T.muted, lineHeight:1.7 }}>入力するとヘッダーに「by サロン名」と表示されます。</div>
+                    <div style={{ display:"flex", gap:10, marginTop:4 }}>
+                      <div style={{ flex:1 }}><Lbl t="営業開始時刻" /><input type="time" defaultValue={salonInfo.businessStart} onBlur={async e => { const s={...salonInfo,businessStart:e.target.value}; setSalonInfo(s); await saveSettings({ business_start: s.businessStart }); }} style={base} /></div>
+                      <div style={{ flex:1 }}><Lbl t="最終受付時刻" /><input type="time" defaultValue={salonInfo.businessLastStart} onBlur={async e => { const s={...salonInfo,businessLastStart:e.target.value}; setSalonInfo(s); await saveSettings({ business_last_start: s.businessLastStart }); }} style={base} /></div>
+                    </div>
+                    <div style={{ fontSize:12, color:T.muted, lineHeight:1.7 }}>例：開始9:30・最終受付19:30なら「9:30〜19:30最終受付」の意味で、19:30スタートの予約まで受け付けます。ここで設定した時間がお客様用の予約フォームの時間選択（15分刻み）に反映されます。</div>
                   </div>
                 </Card>
               )}
